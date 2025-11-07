@@ -1,111 +1,113 @@
+// routes/requests.js
 const express = require("express");
-const router = express.Router();
 const { body, query, param } = require("express-validator");
 const validate = require("../middleware/validate");
 const requestController = require("../controllers/requestController");
 
-// create
+const router = express.Router();
+
+// إنشاء طلب
 router.post(
   "/",
   [
     body("serviceType").notEmpty().withMessage("serviceType is required"),
+    body("customerPhone").optional().isString(),
+    body("notes").optional().isString(),
+    body("city").optional().isString(),
+    body("location.lat").optional().isFloat(),
+    body("location.lng").optional().isFloat(),
     validate,
   ],
   requestController.createRequest
 );
 
-// list
+// جلب الطلبات (للوحة المزود/الأدمن)
 router.get(
   "/",
-  [query("page").optional().isInt({ min: 1 }), validate],
+  [
+    query("page").optional().isInt({ min: 1 }),
+    query("limit").optional().isInt({ min: 1, max: 200 }),
+    query("status")
+      .optional()
+      .isIn([
+        "pending",
+        "accepted",
+        "on-the-way",
+        "in-progress",
+        "done",
+        "cancelled",
+      ]),
+    query("serviceType").optional().isString(),
+    validate,
+  ],
   requestController.getRequests
 );
 
-// by phone
+// جلب طلبات رقم معيّن
 router.get(
   "/by-phone",
-  [query("phone").notEmpty(), validate],
+  [query("phone").notEmpty().withMessage("phone is required"), validate],
   requestController.getRequestsByPhone
 );
 
-// cancel by customer  👈 نستخدم اسمك الفعلي
+// إلغاء من الزبون
 router.post(
   "/:id/cancel",
   [param("id").isMongoId(), validate],
-  requestController.cancelRequestByCustomer
+  requestController.cancelByCustomer
 );
 
-// for provider 👈 نستخدم اسمك الفعلي
+// للـ provider: جلب القريبة
 router.get(
   "/for-provider",
   [
-    query("lat").notEmpty(),
-    query("lng").notEmpty(),
+    query("lat").notEmpty().withMessage("lat is required"),
+    query("lng").notEmpty().withMessage("lng is required"),
     query("phone").optional(),
+    query("serviceType").optional(),
+    query("maxKm").optional().isFloat({ min: 1 }),
     validate,
   ],
-  requestController.getRequestsForProvider
+  requestController.getForProvider
 );
 
-// accept
+// قبول الطلب
 router.patch(
   "/:id/accept",
   [
     param("id").isMongoId(),
-    body("providerPhone").notEmpty(),
+    body("providerPhone").notEmpty().withMessage("providerPhone is required"),
     validate,
   ],
   requestController.acceptRequest
 );
 
-// on-the-way 👈 نستخدم اسمك الفعلي
+// في الطريق
 router.patch(
   "/:id/on-the-way",
   [param("id").isMongoId(), validate],
-  requestController.setOnTheWay
+  requestController.markOnTheWay
 );
 
-// in-progress 👈 نستخدم اسمك الفعلي
+// قيد التنفيذ
 router.patch(
   "/:id/in-progress",
   [param("id").isMongoId(), validate],
-  requestController.setInProgress
+  requestController.markInProgress
 );
 
-// complete
+// إنهاء
 router.patch(
   "/:id/complete",
   [param("id").isMongoId(), validate],
   requestController.completeRequest
 );
 
-// cancel by provider
+// إلغاء من المزود
 router.patch(
   "/:id/cancel-by-provider",
   [param("id").isMongoId(), validate],
   requestController.cancelByProvider
-);
-
-// rate provider
-router.post(
-  "/:id/rate-provider",
-  [
-    param("id").isMongoId(),
-    body("score").isInt({ min: 1, max: 5 }),
-    validate,
-  ],
-  requestController.rateProvider
-);
-
-// rate customer
-router.post(
-  "/:id/rate-customer",
-  [
-    param("id").isMongoId(),
-    body("score").isInt({ min: 1, max: 5 }),
-    validate,
-  ],
-  requestController.rateCustomer
 );
 
 module.exports = router;
