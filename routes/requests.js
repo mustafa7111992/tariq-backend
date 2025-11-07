@@ -6,9 +6,13 @@ const requestController = require('../controllers/requestController');
 
 const router = express.Router();
 
+// لو بالكونترولر الاسم قديم getForProvider نلتقطه
+const forProviderHandler =
+  requestController.getRequestsForProvider ||
+  requestController.getForProvider;
+
 /**
  * POST /api/requests
- * إنشاء طلب
  */
 router.post(
   '/',
@@ -40,12 +44,11 @@ router.post(
 
 /**
  * GET /api/requests
- * لستة الطلبات (للأدمن أو للتطبيق)
  */
 router.get(
   '/',
   [
-    query('page').optional().isInt({ min: 1 }).withMessage('page must be int'),
+    query('page').optional().isInt({ min: 1 }),
     query('limit').optional().isInt({ min: 1, max: 200 }),
     query('status')
       .optional()
@@ -56,15 +59,14 @@ router.get(
         'in-progress',
         'done',
         'cancelled',
-      ])
-      .withMessage('invalid status'),
+      ]),
     validate,
   ],
   requestController.getRequests
 );
 
 /**
- * GET /api/requests/by-phone?phone=...
+ * GET /api/requests/by-phone
  */
 router.get(
   '/by-phone',
@@ -74,8 +76,8 @@ router.get(
 
 /**
  * GET /api/requests/for-provider
- * لازم يجي lat & lng
- * نخليها قبل الراوتات اللي بيها :id
+ * لازم يجي lat,lng
+ * حطيناه قبل الراوتات اللي فيها :id
  */
 router.get(
   '/for-provider',
@@ -86,12 +88,11 @@ router.get(
     query('serviceType').optional(),
     validate,
   ],
-  requestController.getRequestsForProvider
+  forProviderHandler
 );
 
 /**
  * POST /api/requests/:id/cancel
- * إلغاء من الزبون
  */
 router.post(
   '/:id/cancel',
