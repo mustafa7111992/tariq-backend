@@ -1,148 +1,64 @@
 // controllers/requestController.js
-
 const ServiceRequest = require('../models/ServiceRequest');
 const ProviderSettings = require('../models/ProviderSettings');
-const { ok, fail, getDistanceKm } = require('../utils/helpers');
-const { logActivity } = require('../utils/activityLogger');
-const { getCache, setCache, clearCache } = require('../utils/cache');
+const { ok, fail } = require('../utils/response');
+const { getDistanceKm } = require('../utils/distance');
 
-/**
- * POST /api/requests
- * إنشاء طلب خدمة
- */
+// إنشاء طلب جديد
 exports.createRequest = async (req, res) => {
   try {
-    const { serviceType, notes, location, city, customerPhone } = req.body;
+    const body = req.body;
 
-    let geoLocation = null;
-    if (location?.lat && location?.lng) {
-      geoLocation = {
-        type: 'Point',
-        coordinates: [location.lng, location.lat],
-      };
+    if (!body.customerPhone || !body.serviceType || !body.location) {
+      return fail(res, 'missing required fields');
     }
 
-    const doc = await ServiceRequest.create({
-      serviceType,
-      notes: notes || '',
-      location: geoLocation,
-      city: city || null,
-      customerPhone: customerPhone || null,
+    const reqDoc = new ServiceRequest({
+      customerPhone: body.customerPhone,
+      serviceType: body.serviceType,
+      notes: body.notes || '',
+      status: 'pending',
+      location: {
+        type: 'Point',
+        coordinates: [body.location.lng, body.location.lat],
+      },
     });
 
-    await logActivity('request_created', req, {
-      requestId: doc._id,
-      serviceType,
-    });
-
-    // نظف الكاش المرتبط بالطلبات
-    clearCache('requests:');
-
-    return ok(res, doc);
+    await reqDoc.save();
+    return ok(res, reqDoc);
   } catch (err) {
     console.error('createRequest error:', err);
     return fail(res, 'internal error', 500, req);
   }
 };
 
-/**
- * GET /api/requests
- * جلب الطلبات مع فلترة
- */
-exports.getRequests = async (req, res) => {
+// جلب كل الطلبات
+exports.getAllRequests = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
+    const { page = 1, limit = 50 } = req.query;
     const skip = (page - 1) * limit;
-    const { status, serviceType } = req.query;
 
-    const filter = {};
-    if (status) filter.status = status;
-    if (serviceType) filter.serviceType = serviceType;
-
-    const [reqs, total] = await Promise.all([
-      ServiceRequest.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      ServiceRequest.countDocuments(filter),
-    ]);
-
-    return ok(res, reqs, {
-      page,
-      limit,
-      total,
-      pages: Math.ceil(total / limit),
-    });
-  } catch (err) {
-    console.error('getRequests error:', err);
-    return fail(res, 'internal error', 500, req);
-  }
-};
-
-/**
- * GET /api/requests/by-phone?phone=...
- * طلبات زبون معيّن
- */
-exports.getRequestsByPhone = async (req, res) => {
-  try {
-    const { phone } = req.query;
-    const reqs = await ServiceRequest.find({ customerPhone: phone })
+    const total = await ServiceRequest.countDocuments();
+    const data = await ServiceRequest.find()
       .sort({ createdAt: -1 })
+      .skip(parseInt(skip))
+      .limit(parseInt(limit))
       .lean();
-    return ok(res, reqs);
+
+    return ok(res, data, { total });
   } catch (err) {
-    console.error('getRequestsByPhone error:', err);
+    console.error('getAllRequests error:', err);
     return fail(res, 'internal error', 500, req);
   }
 };
 
-/**
- * POST /api/requests/:id/cancel
- * إلغاء من الزبون
- */
-exports.cancelRequestByCustomer = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { phone } = req.body;
-
-    const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'request not found', 404, req);
-
-    if (phone && reqDoc.customerPhone && phone !== reqDoc.customerPhone) {
-      return fail(res, 'not your request', 403, req);
-    }
-
-    reqDoc.status = 'cancelled';
-    reqDoc.cancelledAt = new Date();
-    await reqDoc.save();
-
-    await logActivity('request_cancelled', req, {
-      requestId: id,
-      cancelledBy: 'customer',
-    });
-
-    clearCache('requests:');
-
-    return ok(res, reqDoc);
-  } catch (err) {
-    console.error('cancelRequestByCustomer error:', err);
-    return fail(res, 'internal error', 500, req);
-  }
-};
-
-/**
- * GET /api/requests/for-provider
- * يعيد الطلبات القريبة من المزوّد
- * لو عنده طلب شغال يرجع له بس
- */
+// جلب الطلبات الخاصة بالمزوّد (قريبة منه)
 exports.getRequestsForProvider = async (req, res) => {
   try {
     const { lat, lng, serviceType, phone } = req.query;
     let { maxKm = 30 } = req.query;
 
-    // لو عنده طلب شغال رجّعه بس
+    // لو المزوّد عنده طلب نشط نرجّعه
     if (phone) {
       const activeReq = await ServiceRequest.findOne({
         acceptedByPhone: phone,
@@ -153,7 +69,6 @@ exports.getRequestsForProvider = async (req, res) => {
 
       if (activeReq) {
         const response = { ...activeReq };
-        // نرجّع الموقع بشكل lat/lng للفلتر
         if (response.location?.coordinates) {
           response.location = {
             lng: response.location.coordinates[0],
@@ -164,7 +79,7 @@ exports.getRequestsForProvider = async (req, res) => {
       }
     }
 
-    // نقرأ إعدادات المزود لو موجودة
+    // إعدادات المزوّد (أقصى مسافة)
     maxKm = parseFloat(maxKm);
     if (phone) {
       const settings = await ProviderSettings.findOne({ phone });
@@ -173,101 +88,91 @@ exports.getRequestsForProvider = async (req, res) => {
       }
     }
 
-    // راح نستخدم geo query
-    const query = {
+    // الفلتر الأساسي
+    const baseFilter = {
       status: 'pending',
-      location: {
-        $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: [parseFloat(lng), parseFloat(lat)],
-          },
-          $maxDistance: maxKm * 1000, // km -> m
-        },
-      },
     };
-
     if (serviceType) {
-      query.serviceType = serviceType;
+      baseFilter.serviceType = serviceType;
     }
 
-    const nearby = await ServiceRequest.find(query).limit(20).lean();
+    let nearby = [];
 
-    // نحسب المسافة ونرجع lat/lng بدال coordinates
-    const formatted = nearby.map((r) => {
+    // نحاول geo query
+    if (lat && lng) {
+      const geoQuery = {
+        ...baseFilter,
+        location: {
+          $near: {
+            $geometry: {
+              type: 'Point',
+              coordinates: [parseFloat(lng), parseFloat(lat)],
+            },
+            $maxDistance: maxKm * 1000,
+          },
+        },
+      };
+
+      try {
+        nearby = await ServiceRequest.find(geoQuery).limit(20).lean();
+      } catch (err) {
+        // Fallback لو ماكو index
+        console.error(
+          'geo query failed, falling back to simple query:',
+          err.message
+        );
+        nearby = await ServiceRequest.find(baseFilter)
+          .sort({ createdAt: -1 })
+          .limit(20)
+          .lean();
+      }
+    } else {
+      nearby = await ServiceRequest.find(baseFilter)
+        .sort({ createdAt: -1 })
+        .limit(20)
+        .lean();
+    }
+
+    // تحويل location + احتساب distance
+    const list = nearby.map((r) => {
       const obj = { ...r };
       if (obj.location?.coordinates) {
         const [lo, la] = obj.location.coordinates;
         obj.location = { lat: la, lng: lo };
-        obj.distance = getDistanceKm(
-          parseFloat(lat),
-          parseFloat(lng),
-          la,
-          lo
-        );
+        if (lat && lng) {
+          obj.distance = getDistanceKm(
+            parseFloat(lat),
+            parseFloat(lng),
+            la,
+            lo
+          );
+        }
       }
       return obj;
     });
 
-    return ok(res, formatted);
+    return ok(res, list);
   } catch (err) {
     console.error('getRequestsForProvider error:', err);
     return fail(res, 'internal error', 500, req);
   }
 };
 
-/**
- * PATCH /api/requests/:id/accept
- * قبول الطلب من المزود
- */
+// قبول الطلب
 exports.acceptRequest = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id;
     const { providerPhone } = req.body;
-
-    // ما يخلي المزود يشتغل على طلبين
-    const activeForThisProvider = await ServiceRequest.findOne({
-      acceptedByPhone: providerPhone,
-      status: { $in: ['accepted', 'on-the-way', 'in-progress'] },
-    });
-
-    if (activeForThisProvider) {
-      return fail(
-        res,
-        'you already have active request, finish it first',
-        400,
-        req
-      );
-    }
-
     const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'request not found', 404, req);
+    if (!reqDoc) return fail(res, 'not found', 404);
 
-    // لو الطلب مو pending ومو إله
-    if (
-      reqDoc.status !== 'pending' &&
-      reqDoc.acceptedByPhone &&
-      reqDoc.acceptedByPhone !== providerPhone
-    ) {
-      return fail(
-        res,
-        'request already accepted by another provider',
-        409,
-        req
-      );
+    if (reqDoc.status !== 'pending') {
+      return fail(res, 'already accepted');
     }
 
     reqDoc.status = 'accepted';
     reqDoc.acceptedByPhone = providerPhone;
-    reqDoc.acceptedAt = new Date();
     await reqDoc.save();
-
-    await logActivity('request_accepted', req, {
-      requestId: id,
-      providerPhone,
-    });
-
-    clearCache('requests:');
 
     return ok(res, reqDoc);
   } catch (err) {
@@ -276,202 +181,72 @@ exports.acceptRequest = async (req, res) => {
   }
 };
 
-/**
- * PATCH /api/requests/:id/on-the-way
- */
-exports.setOnTheWay = async (req, res) => {
+// تحديث الحالة إلى "في الطريق"
+exports.markOnTheWay = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { providerPhone } = req.body;
-
+    const id = req.params.id;
     const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'request not found', 404, req);
-
-    if (providerPhone && reqDoc.acceptedByPhone !== providerPhone) {
-      return fail(res, 'not your request', 403, req);
-    }
+    if (!reqDoc) return fail(res, 'not found', 404);
 
     reqDoc.status = 'on-the-way';
     await reqDoc.save();
 
-    await logActivity('request_on_the_way', req, { requestId: id });
-    clearCache('requests:');
-
     return ok(res, reqDoc);
   } catch (err) {
-    console.error('setOnTheWay error:', err);
+    console.error('markOnTheWay error:', err);
     return fail(res, 'internal error', 500, req);
   }
 };
 
-/**
- * PATCH /api/requests/:id/in-progress
- */
-exports.setInProgress = async (req, res) => {
+// تحديث الحالة إلى "قيد التنفيذ"
+exports.markInProgress = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { providerPhone } = req.body;
-
+    const id = req.params.id;
     const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'request not found', 404, req);
-
-    if (providerPhone && reqDoc.acceptedByPhone !== providerPhone) {
-      return fail(res, 'not your request', 403, req);
-    }
+    if (!reqDoc) return fail(res, 'not found', 404);
 
     reqDoc.status = 'in-progress';
     await reqDoc.save();
 
-    await logActivity('request_in_progress', req, { requestId: id });
-    clearCache('requests:');
-
     return ok(res, reqDoc);
   } catch (err) {
-    console.error('setInProgress error:', err);
+    console.error('markInProgress error:', err);
     return fail(res, 'internal error', 500, req);
   }
 };
 
-/**
- * PATCH /api/requests/:id/complete
- * إنهاء الطلب
- */
-exports.completeRequest = async (req, res) => {
+// إنهاء الطلب
+exports.markComplete = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { providerPhone } = req.body;
-
+    const id = req.params.id;
     const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'request not found', 404, req);
-
-    if (providerPhone && reqDoc.acceptedByPhone !== providerPhone) {
-      return fail(res, 'not your request', 403, req);
-    }
+    if (!reqDoc) return fail(res, 'not found', 404);
 
     reqDoc.status = 'done';
-    reqDoc.completedAt = new Date();
     await reqDoc.save();
-
-    await logActivity('request_completed', req, { requestId: id });
-
-    clearCache('requests:');
-    if (providerPhone) {
-      clearCache('provider:stats:' + providerPhone);
-    }
 
     return ok(res, reqDoc);
   } catch (err) {
-    console.error('completeRequest error:', err);
+    console.error('markComplete error:', err);
     return fail(res, 'internal error', 500, req);
   }
 };
 
-/**
- * PATCH /api/requests/:id/cancel-by-provider
- */
+// إلغاء الطلب من المزوّد
 exports.cancelByProvider = async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id;
     const { providerPhone } = req.body;
-
     const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'request not found', 404, req);
-
-    if (providerPhone && reqDoc.acceptedByPhone !== providerPhone) {
-      return fail(res, 'not your request', 403, req);
-    }
+    if (!reqDoc) return fail(res, 'not found', 404);
 
     reqDoc.status = 'cancelled';
-    reqDoc.acceptedByPhone = null;
-    reqDoc.cancelledAt = new Date();
+    reqDoc.cancelledBy = providerPhone;
     await reqDoc.save();
-
-    await logActivity('request_cancelled', req, {
-      requestId: id,
-      cancelledBy: 'provider',
-    });
-
-    clearCache('requests:');
 
     return ok(res, reqDoc);
   } catch (err) {
     console.error('cancelByProvider error:', err);
-    return fail(res, 'internal error', 500, req);
-  }
-};
-
-/**
- * POST /api/requests/:id/rate-provider
- * المستخدم يقيّم المزود
- */
-exports.rateProvider = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { score, comment, phone } = req.body;
-
-    const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'request not found', 404, req);
-
-    // تأكد هو صاحب الطلب
-    if (phone && reqDoc.customerPhone && phone !== reqDoc.customerPhone) {
-      return fail(res, 'not your request', 403, req);
-    }
-
-    reqDoc.providerRating = {
-      score,
-      comment: comment || '',
-      ratedAt: new Date(),
-    };
-    await reqDoc.save();
-
-    await logActivity('provider_rated', req, {
-      requestId: id,
-      score,
-    });
-
-    if (reqDoc.acceptedByPhone) {
-      clearCache('provider:stats:' + reqDoc.acceptedByPhone);
-    }
-
-    return ok(res, reqDoc);
-  } catch (err) {
-    console.error('rateProvider error:', err);
-    return fail(res, 'internal error', 500, req);
-  }
-};
-
-/**
- * POST /api/requests/:id/rate-customer
- * المزوّد يقيّم الزبون
- */
-exports.rateCustomer = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { score, comment, phone } = req.body;
-
-    const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'request not found', 404, req);
-
-    // تأكد هو المزود
-    if (phone && reqDoc.acceptedByPhone && phone !== reqDoc.acceptedByPhone) {
-      return fail(res, 'not your request', 403, req);
-    }
-
-    reqDoc.customerRating = {
-      score,
-      comment: comment || '',
-      ratedAt: new Date(),
-    };
-    await reqDoc.save();
-
-    await logActivity('customer_rated', req, {
-      requestId: id,
-      score,
-    });
-
-    return ok(res, reqDoc);
-  } catch (err) {
-    console.error('rateCustomer error:', err);
     return fail(res, 'internal error', 500, req);
   }
 };
