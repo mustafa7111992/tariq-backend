@@ -2,7 +2,22 @@
 const router = require("express").Router();
 const { body, query, param } = require("express-validator");
 const validate = require("../middleware/validate");
-const requestController = require("../controllers/requestController");
+
+// ناخذ الدوال وحده وحده حتى إذا وحدة مو موجودة نعرف
+const {
+  createRequest,
+  getRequests,
+  getRequestsByPhone,
+  cancelByCustomer,
+  getForProvider,
+  acceptRequest,
+  markOnTheWay,
+  markInProgress,
+  completeRequest,
+  cancelByProvider,
+  rateProvider,
+  rateCustomer,
+} = require("../controllers/requestController");
 
 // إنشاء طلب
 router.post(
@@ -10,14 +25,12 @@ router.post(
   [
     body("serviceType").notEmpty().withMessage("serviceType is required"),
     body("customerPhone").optional(),
-    body("location.lat").optional().isFloat({ min: -90, max: 90 }),
-    body("location.lng").optional().isFloat({ min: -180, max: 180 }),
     validate,
   ],
-  requestController.createRequest
+  createRequest
 );
 
-// جلب الطلبات (للوحة الأدمن مثلاً)
+// جلب الطلبات (للوحة الادمن أو للفحص)
 router.get(
   "/",
   [
@@ -32,118 +45,64 @@ router.get(
         "done",
         "cancelled",
       ]),
-    query("serviceType").optional(),
     validate,
   ],
-  requestController.getRequests
+  getRequests
 );
 
-// طلبات زبون معيّن
+// طلبات حسب رقم الزبون
 router.get(
   "/by-phone",
   [query("phone").notEmpty(), validate],
-  requestController.getRequestsByPhone
+  getRequestsByPhone
 );
 
 // إلغاء من الزبون
 router.post(
   "/:id/cancel",
-  [param("id").isMongoId(), body("phone").optional(), validate],
-  requestController.cancelByCustomer
+  [param("id").isMongoId(), validate],
+  cancelByCustomer
 );
 
-// الطلبات للمزوّد
+// الطلبات للمزوّد (القريبة)
 router.get(
   "/for-provider",
   [
-    query("lat").notEmpty().isFloat({ min: -90, max: 90 }),
-    query("lng").notEmpty().isFloat({ min: -180, max: 180 }),
+    query("lat").notEmpty(),
+    query("lng").notEmpty(),
     query("phone").optional(),
-    query("serviceType").optional(),
     validate,
   ],
-  requestController.getForProvider
+  getForProvider
 );
 
-// قبول الطلب
+// قبول طلب من المزود
 router.patch(
   "/:id/accept",
-  [
-    param("id").isMongoId(),
-    body("providerPhone").notEmpty(),
-    validate,
-  ],
-  requestController.acceptRequest
+  [param("id").isMongoId(), body("providerPhone").notEmpty(), validate],
+  acceptRequest
 );
 
 // في الطريق
-router.patch(
-  "/:id/on-the-way",
-  [
-    param("id").isMongoId(),
-    body("providerPhone").optional(),
-    validate,
-  ],
-  requestController.markOnTheWay
-);
+router.patch("/:id/on-the-way", markOnTheWay);
 
 // قيد التنفيذ
-router.patch(
-  "/:id/in-progress",
-  [
-    param("id").isMongoId(),
-    body("providerPhone").optional(),
-    validate,
-  ],
-  requestController.markInProgress
-);
+router.patch("/:id/in-progress", markInProgress);
 
 // إنهاء الطلب
-router.patch(
-  "/:id/complete",
-  [
-    param("id").isMongoId(),
-    body("providerPhone").optional(),
-    validate,
-  ],
-  requestController.completeRequest
-);
+router.patch("/:id/complete", completeRequest);
 
 // إلغاء من المزوّد
-router.patch(
-  "/:id/cancel-by-provider",
-  [
-    param("id").isMongoId(),
-    body("providerPhone").optional(),
-    validate,
-  ],
-  requestController.cancelByProvider
-);
+router.patch("/:id/cancel-by-provider", cancelByProvider);
 
-// تقييم المزوّد
+// تقييم المزود
 router.post(
   "/:id/rate-provider",
-  [
-    param("id").isMongoId(),
-    body("score").isInt({ min: 1, max: 5 }),
-    body("comment").optional().trim(),
-    body("phone").optional(),
-    validate,
-  ],
-  requestController.rateProvider
+  [param("id").isMongoId(), body("score").isInt({ min: 1, max: 5 }), validate],
+  rateProvider
 );
 
 // تقييم الزبون
-router.post(
-  "/:id/rate-customer",
-  [
-    param("id").isMongoId(),
-    body("score").isInt({ min: 1, max: 5 }),
-    body("comment").optional().trim(),
-    body("phone").optional(),
-    validate,
-  ],
-  requestController.rateCustomer
-);
+router.post("/:id/rate-customer", rateCustomer);
 
 module.exports = router;
