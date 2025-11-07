@@ -11,7 +11,7 @@ exports.createRequest = async (req, res) => {
     const { customerPhone, serviceType, notes, location, city } = req.body;
 
     if (!serviceType) {
-      return fail(res, "serviceType is required", 400, req.id);
+      return fail(res, "serviceType is required", 400, req);
     }
 
     let geoLocation = null;
@@ -34,7 +34,7 @@ exports.createRequest = async (req, res) => {
     return ok(res, doc);
   } catch (err) {
     console.error("createRequest error:", err);
-    return fail(res, "internal error", 500, req.id);
+    return fail(res, "internal error", 500, req);
   }
 };
 
@@ -67,7 +67,7 @@ exports.getRequests = async (req, res) => {
     });
   } catch (err) {
     console.error("getRequests error:", err);
-    return fail(res, "internal error", 500, req.id);
+    return fail(res, "internal error", 500, req);
   }
 };
 
@@ -75,7 +75,7 @@ exports.getRequests = async (req, res) => {
 exports.getRequestsByPhone = async (req, res) => {
   try {
     const { phone } = req.query;
-    if (!phone) return fail(res, "phone is required", 400, req.id);
+    if (!phone) return fail(res, "phone is required", 400, req);
 
     const items = await ServiceRequest.find({ customerPhone: phone })
       .sort({ createdAt: -1 })
@@ -84,21 +84,21 @@ exports.getRequestsByPhone = async (req, res) => {
     return ok(res, items);
   } catch (err) {
     console.error("getRequestsByPhone error:", err);
-    return fail(res, "internal error", 500, req.id);
+    return fail(res, "internal error", 500, req);
   }
 };
 
-// POST /api/requests/:id/cancel
+// POST /api/requests/:id/cancel  (by customer)
 exports.cancelByCustomer = async (req, res) => {
   try {
     const { id } = req.params;
     const { phone } = req.body || {};
 
     const doc = await ServiceRequest.findById(id);
-    if (!doc) return fail(res, "request not found", 404, req.id);
+    if (!doc) return fail(res, "request not found", 404, req);
 
     if (phone && doc.customerPhone && phone !== doc.customerPhone) {
-      return fail(res, "not your request", 403, req.id);
+      return fail(res, "not your request", 403, req);
     }
 
     doc.status = "cancelled";
@@ -108,7 +108,7 @@ exports.cancelByCustomer = async (req, res) => {
     return ok(res, doc);
   } catch (err) {
     console.error("cancelByCustomer error:", err);
-    return fail(res, "internal error", 500, req.id);
+    return fail(res, "internal error", 500, req);
   }
 };
 
@@ -213,7 +213,7 @@ exports.getForProvider = async (req, res) => {
     return ok(res, list);
   } catch (err) {
     console.error("getForProvider error:", err);
-    return fail(res, "internal error", 500, req.id);
+    return fail(res, "internal error", 500, req);
   }
 };
 
@@ -224,7 +224,7 @@ exports.acceptRequest = async (req, res) => {
     const { providerPhone } = req.body;
 
     if (!providerPhone)
-      return fail(res, "providerPhone is required", 400, req.id);
+      return fail(res, "providerPhone is required", 400, req);
 
     // تأكد ما عنده طلب شغال
     const active = await ServiceRequest.findOne({
@@ -236,15 +236,20 @@ exports.acceptRequest = async (req, res) => {
         res,
         "you already have active request, finish it first",
         400,
-        req.id
+        req
       );
     }
 
     const doc = await ServiceRequest.findById(id);
-    if (!doc) return fail(res, "request not found", 404, req.id);
+    if (!doc) return fail(res, "request not found", 404, req);
 
     if (doc.status !== "pending" && doc.acceptedByPhone !== providerPhone) {
-      return fail(res, "request already accepted by another provider", 409, req.id);
+      return fail(
+        res,
+        "request already accepted by another provider",
+        409,
+        req
+      );
     }
 
     doc.status = "accepted";
@@ -255,7 +260,7 @@ exports.acceptRequest = async (req, res) => {
     return ok(res, doc);
   } catch (err) {
     console.error("acceptRequest error:", err);
-    return fail(res, "internal error", 500, req.id);
+    return fail(res, "internal error", 500, req);
   }
 };
 
@@ -266,10 +271,10 @@ exports.markOnTheWay = async (req, res) => {
     const { providerPhone } = req.body || {};
 
     const doc = await ServiceRequest.findById(id);
-    if (!doc) return fail(res, "request not found", 404, req.id);
+    if (!doc) return fail(res, "request not found", 404, req);
 
     if (providerPhone && doc.acceptedByPhone !== providerPhone) {
-      return fail(res, "not your request", 403, req.id);
+      return fail(res, "not your request", 403, req);
     }
 
     doc.status = "on-the-way";
@@ -278,7 +283,7 @@ exports.markOnTheWay = async (req, res) => {
     return ok(res, doc);
   } catch (err) {
     console.error("markOnTheWay error:", err);
-    return fail(res, "internal error", 500, req.id);
+    return fail(res, "internal error", 500, req);
   }
 };
 
@@ -289,10 +294,10 @@ exports.markInProgress = async (req, res) => {
     const { providerPhone } = req.body || {};
 
     const doc = await ServiceRequest.findById(id);
-    if (!doc) return fail(res, "request not found", 404, req.id);
+    if (!doc) return fail(res, "request not found", 404, req);
 
     if (providerPhone && doc.acceptedByPhone !== providerPhone) {
-      return fail(res, "not your request", 403, req.id);
+      return fail(res, "not your request", 403, req);
     }
 
     doc.status = "in-progress";
@@ -301,7 +306,7 @@ exports.markInProgress = async (req, res) => {
     return ok(res, doc);
   } catch (err) {
     console.error("markInProgress error:", err);
-    return fail(res, "internal error", 500, req.id);
+    return fail(res, "internal error", 500, req);
   }
 };
 
@@ -312,10 +317,10 @@ exports.completeRequest = async (req, res) => {
     const { providerPhone } = req.body || {};
 
     const doc = await ServiceRequest.findById(id);
-    if (!doc) return fail(res, "request not found", 404, req.id);
+    if (!doc) return fail(res, "request not found", 404, req);
 
     if (providerPhone && doc.acceptedByPhone !== providerPhone) {
-      return fail(res, "not your request", 403, req.id);
+      return fail(res, "not your request", 403, req);
     }
 
     doc.status = "done";
@@ -325,7 +330,7 @@ exports.completeRequest = async (req, res) => {
     return ok(res, doc);
   } catch (err) {
     console.error("completeRequest error:", err);
-    return fail(res, "internal error", 500, req.id);
+    return fail(res, "internal error", 500, req);
   }
 };
 
@@ -336,10 +341,10 @@ exports.cancelByProvider = async (req, res) => {
     const { providerPhone } = req.body || {};
 
     const doc = await ServiceRequest.findById(id);
-    if (!doc) return fail(res, "request not found", 404, req.id);
+    if (!doc) return fail(res, "request not found", 404, req);
 
     if (providerPhone && doc.acceptedByPhone !== providerPhone) {
-      return fail(res, "not your request", 403, req.id);
+      return fail(res, "not your request", 403, req);
     }
 
     doc.status = "cancelled";
@@ -350,6 +355,62 @@ exports.cancelByProvider = async (req, res) => {
     return ok(res, doc);
   } catch (err) {
     console.error("cancelByProvider error:", err);
-    return fail(res, "internal error", 500, req.id);
+    return fail(res, "internal error", 500, req);
+  }
+};
+
+// POST /api/requests/:id/rate-provider
+exports.rateProvider = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { score, comment, phone } = req.body || {};
+
+    const doc = await ServiceRequest.findById(id);
+    if (!doc) return fail(res, "request not found", 404, req);
+
+    // لو تريد تتأكد اللي يقيّم هو نفس الزبون
+    if (phone && doc.customerPhone && phone !== doc.customerPhone) {
+      return fail(res, "not your request", 403, req);
+    }
+
+    doc.providerRating = {
+      score,
+      comment: comment || "",
+      ratedAt: new Date(),
+    };
+    await doc.save();
+
+    return ok(res, doc);
+  } catch (err) {
+    console.error("rateProvider error:", err);
+    return fail(res, "internal error", 500, req);
+  }
+};
+
+// POST /api/requests/:id/rate-customer
+exports.rateCustomer = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { score, comment, phone } = req.body || {};
+
+    const doc = await ServiceRequest.findById(id);
+    if (!doc) return fail(res, "request not found", 404, req);
+
+    // لو تريد تتأكد اللي يقيّم هو المزود
+    if (phone && doc.acceptedByPhone && phone !== doc.acceptedByPhone) {
+      return fail(res, "not your request", 403, req);
+    }
+
+    doc.customerRating = {
+      score,
+      comment: comment || "",
+      ratedAt: new Date(),
+    };
+    await doc.save();
+
+    return ok(res, doc);
+  } catch (err) {
+    console.error("rateCustomer error:", err);
+    return fail(res, "internal error", 500, req);
   }
 };
