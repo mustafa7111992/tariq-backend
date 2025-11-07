@@ -19,6 +19,11 @@ const serviceRoutes = require('./routes/services');
 const healthRoutes = require('./routes/health');
 
 const app = express();
+
+// مهم للـ Render / Nginx / proxies
+app.set('trust proxy', 1);
+
+// اتصال الداتابيس
 connectDB();
 
 // ميدلوير عام
@@ -30,7 +35,7 @@ app.use(helmet({ crossOriginEmbedderPolicy: false }));
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// rate limit
+// rate limit على مسار /api بس
 app.use('/api', rateLimiter);
 
 // routes
