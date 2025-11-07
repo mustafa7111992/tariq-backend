@@ -4,18 +4,20 @@ const { body, query, param } = require("express-validator");
 const validate = require("../middleware/validate");
 const requestController = require("../controllers/requestController");
 
-// create
+// إنشاء طلب
 router.post(
   "/",
   [
     body("serviceType").notEmpty().withMessage("serviceType is required"),
     body("customerPhone").optional(),
+    body("location.lat").optional().isFloat({ min: -90, max: 90 }),
+    body("location.lng").optional().isFloat({ min: -180, max: 180 }),
     validate,
   ],
   requestController.createRequest
 );
 
-// list
+// جلب الطلبات (للوحة الأدمن مثلاً)
 router.get(
   "/",
   [
@@ -30,38 +32,40 @@ router.get(
         "done",
         "cancelled",
       ]),
+    query("serviceType").optional(),
     validate,
   ],
   requestController.getRequests
 );
 
-// by customer
+// طلبات زبون معيّن
 router.get(
   "/by-phone",
   [query("phone").notEmpty(), validate],
   requestController.getRequestsByPhone
 );
 
-// cancel by customer
+// إلغاء من الزبون
 router.post(
   "/:id/cancel",
-  [param("id").isMongoId(), validate],
+  [param("id").isMongoId(), body("phone").optional(), validate],
   requestController.cancelByCustomer
 );
 
-// for provider
+// الطلبات للمزوّد
 router.get(
   "/for-provider",
   [
-    query("lat").notEmpty(),
-    query("lng").notEmpty(),
+    query("lat").notEmpty().isFloat({ min: -90, max: 90 }),
+    query("lng").notEmpty().isFloat({ min: -180, max: 180 }),
     query("phone").optional(),
+    query("serviceType").optional(),
     validate,
   ],
   requestController.getForProvider
 );
 
-// accept
+// قبول الطلب
 router.patch(
   "/:id/accept",
   [
@@ -72,26 +76,74 @@ router.patch(
   requestController.acceptRequest
 );
 
-// on-the-way
-router.patch("/:id/on-the-way", requestController.markOnTheWay);
+// في الطريق
+router.patch(
+  "/:id/on-the-way",
+  [
+    param("id").isMongoId(),
+    body("providerPhone").optional(),
+    validate,
+  ],
+  requestController.markOnTheWay
+);
 
-// in-progress
-router.patch("/:id/in-progress", requestController.markInProgress);
+// قيد التنفيذ
+router.patch(
+  "/:id/in-progress",
+  [
+    param("id").isMongoId(),
+    body("providerPhone").optional(),
+    validate,
+  ],
+  requestController.markInProgress
+);
 
-// complete
-router.patch("/:id/complete", requestController.completeRequest);
+// إنهاء الطلب
+router.patch(
+  "/:id/complete",
+  [
+    param("id").isMongoId(),
+    body("providerPhone").optional(),
+    validate,
+  ],
+  requestController.completeRequest
+);
 
-// cancel by provider
-router.patch("/:id/cancel-by-provider", requestController.cancelByProvider);
+// إلغاء من المزوّد
+router.patch(
+  "/:id/cancel-by-provider",
+  [
+    param("id").isMongoId(),
+    body("providerPhone").optional(),
+    validate,
+  ],
+  requestController.cancelByProvider
+);
 
-// rate provider
+// تقييم المزوّد
 router.post(
   "/:id/rate-provider",
-  [param("id").isMongoId(), body("score").isInt({ min: 1, max: 5 }), validate],
+  [
+    param("id").isMongoId(),
+    body("score").isInt({ min: 1, max: 5 }),
+    body("comment").optional().trim(),
+    body("phone").optional(),
+    validate,
+  ],
   requestController.rateProvider
 );
 
-// rate customer
-router.post("/:id/rate-customer", requestController.rateCustomer);
+// تقييم الزبون
+router.post(
+  "/:id/rate-customer",
+  [
+    param("id").isMongoId(),
+    body("score").isInt({ min: 1, max: 5 }),
+    body("comment").optional().trim(),
+    body("phone").optional(),
+    validate,
+  ],
+  requestController.rateCustomer
+);
 
 module.exports = router;
