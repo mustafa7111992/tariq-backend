@@ -1,111 +1,169 @@
 // controllers/requestController.js
-const ServiceRequest = require('../models/ServiceRequest');
-const ProviderSettings = require('../models/ProviderSettings');
-const { ok, fail } = require('../utils/response');
-const { getDistanceKm } = require('../utils/distance');
 
-// إنشاء طلب جديد
+const ServiceRequest = require("../models/ServiceRequest");
+const ProviderSettings = require("../models/ProviderSettings");
+const { ok, fail, getDistanceKm } = require("../utils/helpers");
+
+// POST /api/requests
+// إنشاء طلب خدمة
 exports.createRequest = async (req, res) => {
   try {
-    const body = req.body;
+    const { customerPhone, serviceType, notes, location, city } = req.body;
 
-    if (!body.customerPhone || !body.serviceType || !body.location) {
-      return fail(res, 'missing required fields');
+    if (!serviceType) {
+      return fail(res, "serviceType is required", 400, req.id);
     }
 
-    const reqDoc = new ServiceRequest({
-      customerPhone: body.customerPhone,
-      serviceType: body.serviceType,
-      notes: body.notes || '',
-      status: 'pending',
-      location: {
-        type: 'Point',
-        coordinates: [body.location.lng, body.location.lat],
-      },
+    let geoLocation = null;
+    if (location?.lat && location?.lng) {
+      geoLocation = {
+        type: "Point",
+        coordinates: [location.lng, location.lat],
+      };
+    }
+
+    const doc = await ServiceRequest.create({
+      customerPhone: customerPhone || null,
+      serviceType,
+      notes: notes || "",
+      city: city || null,
+      status: "pending",
+      location: geoLocation,
     });
 
-    await reqDoc.save();
-    return ok(res, reqDoc);
+    return ok(res, doc);
   } catch (err) {
-    console.error('createRequest error:', err);
-    return fail(res, 'internal error', 500, req);
+    console.error("createRequest error:", err);
+    return fail(res, "internal error", 500, req.id);
   }
 };
 
-// جلب كل الطلبات
-exports.getAllRequests = async (req, res) => {
+// GET /api/requests
+// جلب الطلبات مع فلترة بسيطة + صفحة
+exports.getRequests = async (req, res) => {
   try {
-    const { page = 1, limit = 50 } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
 
-    const total = await ServiceRequest.countDocuments();
-    const data = await ServiceRequest.find()
-      .sort({ createdAt: -1 })
-      .skip(parseInt(skip))
-      .limit(parseInt(limit))
-      .lean();
+    const filter = {};
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.serviceType) filter.serviceType = req.query.serviceType;
 
-    return ok(res, data, { total });
+    const [items, total] = await Promise.all([
+      ServiceRequest.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      ServiceRequest.countDocuments(filter),
+    ]);
+
+    return ok(res, items, {
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit),
+    });
   } catch (err) {
-    console.error('getAllRequests error:', err);
-    return fail(res, 'internal error', 500, req);
+    console.error("getRequests error:", err);
+    return fail(res, "internal error", 500, req.id);
   }
 };
 
-// جلب الطلبات الخاصة بالمزوّد (قريبة منه)
-exports.getRequestsForProvider = async (req, res) => {
+// GET /api/requests/by-phone?phone=...
+exports.getRequestsByPhone = async (req, res) => {
+  try {
+    const { phone } = req.query;
+    if (!phone) return fail(res, "phone is required", 400, req.id);
+
+    const items = await ServiceRequest.find({ customerPhone: phone })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return ok(res, items);
+  } catch (err) {
+    console.error("getRequestsByPhone error:", err);
+    return fail(res, "internal error", 500, req.id);
+  }
+};
+
+// POST /api/requests/:id/cancel
+exports.cancelByCustomer = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { phone } = req.body || {};
+
+    const doc = await ServiceRequest.findById(id);
+    if (!doc) return fail(res, "request not found", 404, req.id);
+
+    if (phone && doc.customerPhone && phone !== doc.customerPhone) {
+      return fail(res, "not your request", 403, req.id);
+    }
+
+    doc.status = "cancelled";
+    doc.cancelledAt = new Date();
+    await doc.save();
+
+    return ok(res, doc);
+  } catch (err) {
+    console.error("cancelByCustomer error:", err);
+    return fail(res, "internal error", 500, req.id);
+  }
+};
+
+// GET /api/requests/for-provider
+// ترجع الطلبات القريبة من المزود
+exports.getForProvider = async (req, res) => {
   try {
     const { lat, lng, serviceType, phone } = req.query;
     let { maxKm = 30 } = req.query;
 
-    // لو المزوّد عنده طلب نشط نرجّعه
+    // لو عنده طلب شغال رجّعه بس
     if (phone) {
-      const activeReq = await ServiceRequest.findOne({
+      const active = await ServiceRequest.findOne({
         acceptedByPhone: phone,
-        status: { $in: ['accepted', 'on-the-way', 'in-progress'] },
+        status: { $in: ["accepted", "on-the-way", "in-progress"] },
       })
         .sort({ createdAt: -1 })
         .lean();
 
-      if (activeReq) {
-        const response = { ...activeReq };
-        if (response.location?.coordinates) {
-          response.location = {
-            lng: response.location.coordinates[0],
-            lat: response.location.coordinates[1],
+      if (active) {
+        const one = { ...active };
+        if (one.location?.coordinates) {
+          one.location = {
+            lng: one.location.coordinates[0],
+            lat: one.location.coordinates[1],
           };
         }
-        return ok(res, [response]);
+        return ok(res, [one]);
       }
     }
 
-    // إعدادات المزوّد (أقصى مسافة)
+    // شوف إعدادات المزود
     maxKm = parseFloat(maxKm);
     if (phone) {
-      const settings = await ProviderSettings.findOne({ phone });
+      const settings = await ProviderSettings.findOne({ phone }).lean();
       if (settings?.maxDistance) {
         maxKm = settings.maxDistance;
       }
     }
 
-    // الفلتر الأساسي
     const baseFilter = {
-      status: 'pending',
+      status: "pending",
     };
-    if (serviceType) {
-      baseFilter.serviceType = serviceType;
-    }
+    if (serviceType) baseFilter.serviceType = serviceType;
 
     let nearby = [];
 
-    // نحاول geo query
+    // نحاول geoNear أول
     if (lat && lng) {
       const geoQuery = {
         ...baseFilter,
         location: {
           $near: {
             $geometry: {
-              type: 'Point',
+              type: "Point",
               coordinates: [parseFloat(lng), parseFloat(lat)],
             },
             $maxDistance: maxKm * 1000,
@@ -116,9 +174,9 @@ exports.getRequestsForProvider = async (req, res) => {
       try {
         nearby = await ServiceRequest.find(geoQuery).limit(20).lean();
       } catch (err) {
-        // Fallback لو ماكو index
+        // هنا المشكلة اللي طلعتلك على Render: مافي index
         console.error(
-          'geo query failed, falling back to simple query:',
+          "geo query failed, fallback to normal find:",
           err.message
         );
         nearby = await ServiceRequest.find(baseFilter)
@@ -127,13 +185,14 @@ exports.getRequestsForProvider = async (req, res) => {
           .lean();
       }
     } else {
+      // ماكو إحداثيات – رجع pending عادي
       nearby = await ServiceRequest.find(baseFilter)
         .sort({ createdAt: -1 })
         .limit(20)
         .lean();
     }
 
-    // تحويل location + احتساب distance
+    // صياغة الرد + حساب المسافة
     const list = nearby.map((r) => {
       const obj = { ...r };
       if (obj.location?.coordinates) {
@@ -153,100 +212,144 @@ exports.getRequestsForProvider = async (req, res) => {
 
     return ok(res, list);
   } catch (err) {
-    console.error('getRequestsForProvider error:', err);
-    return fail(res, 'internal error', 500, req);
+    console.error("getForProvider error:", err);
+    return fail(res, "internal error", 500, req.id);
   }
 };
 
-// قبول الطلب
+// PATCH /api/requests/:id/accept
 exports.acceptRequest = async (req, res) => {
   try {
-    const id = req.params.id;
+    const { id } = req.params;
     const { providerPhone } = req.body;
-    const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'not found', 404);
 
-    if (reqDoc.status !== 'pending') {
-      return fail(res, 'already accepted');
+    if (!providerPhone)
+      return fail(res, "providerPhone is required", 400, req.id);
+
+    // تأكد ما عنده طلب شغال
+    const active = await ServiceRequest.findOne({
+      acceptedByPhone: providerPhone,
+      status: { $in: ["accepted", "on-the-way", "in-progress"] },
+    });
+    if (active) {
+      return fail(
+        res,
+        "you already have active request, finish it first",
+        400,
+        req.id
+      );
     }
 
-    reqDoc.status = 'accepted';
-    reqDoc.acceptedByPhone = providerPhone;
-    await reqDoc.save();
+    const doc = await ServiceRequest.findById(id);
+    if (!doc) return fail(res, "request not found", 404, req.id);
 
-    return ok(res, reqDoc);
+    if (doc.status !== "pending" && doc.acceptedByPhone !== providerPhone) {
+      return fail(res, "request already accepted by another provider", 409, req.id);
+    }
+
+    doc.status = "accepted";
+    doc.acceptedByPhone = providerPhone;
+    doc.acceptedAt = new Date();
+    await doc.save();
+
+    return ok(res, doc);
   } catch (err) {
-    console.error('acceptRequest error:', err);
-    return fail(res, 'internal error', 500, req);
+    console.error("acceptRequest error:", err);
+    return fail(res, "internal error", 500, req.id);
   }
 };
 
-// تحديث الحالة إلى "في الطريق"
+// PATCH /api/requests/:id/on-the-way
 exports.markOnTheWay = async (req, res) => {
   try {
-    const id = req.params.id;
-    const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'not found', 404);
+    const { id } = req.params;
+    const { providerPhone } = req.body || {};
 
-    reqDoc.status = 'on-the-way';
-    await reqDoc.save();
+    const doc = await ServiceRequest.findById(id);
+    if (!doc) return fail(res, "request not found", 404, req.id);
 
-    return ok(res, reqDoc);
+    if (providerPhone && doc.acceptedByPhone !== providerPhone) {
+      return fail(res, "not your request", 403, req.id);
+    }
+
+    doc.status = "on-the-way";
+    await doc.save();
+
+    return ok(res, doc);
   } catch (err) {
-    console.error('markOnTheWay error:', err);
-    return fail(res, 'internal error', 500, req);
+    console.error("markOnTheWay error:", err);
+    return fail(res, "internal error", 500, req.id);
   }
 };
 
-// تحديث الحالة إلى "قيد التنفيذ"
+// PATCH /api/requests/:id/in-progress
 exports.markInProgress = async (req, res) => {
   try {
-    const id = req.params.id;
-    const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'not found', 404);
+    const { id } = req.params;
+    const { providerPhone } = req.body || {};
 
-    reqDoc.status = 'in-progress';
-    await reqDoc.save();
+    const doc = await ServiceRequest.findById(id);
+    if (!doc) return fail(res, "request not found", 404, req.id);
 
-    return ok(res, reqDoc);
+    if (providerPhone && doc.acceptedByPhone !== providerPhone) {
+      return fail(res, "not your request", 403, req.id);
+    }
+
+    doc.status = "in-progress";
+    await doc.save();
+
+    return ok(res, doc);
   } catch (err) {
-    console.error('markInProgress error:', err);
-    return fail(res, 'internal error', 500, req);
+    console.error("markInProgress error:", err);
+    return fail(res, "internal error", 500, req.id);
   }
 };
 
-// إنهاء الطلب
-exports.markComplete = async (req, res) => {
+// PATCH /api/requests/:id/complete
+exports.completeRequest = async (req, res) => {
   try {
-    const id = req.params.id;
-    const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'not found', 404);
+    const { id } = req.params;
+    const { providerPhone } = req.body || {};
 
-    reqDoc.status = 'done';
-    await reqDoc.save();
+    const doc = await ServiceRequest.findById(id);
+    if (!doc) return fail(res, "request not found", 404, req.id);
 
-    return ok(res, reqDoc);
+    if (providerPhone && doc.acceptedByPhone !== providerPhone) {
+      return fail(res, "not your request", 403, req.id);
+    }
+
+    doc.status = "done";
+    doc.completedAt = new Date();
+    await doc.save();
+
+    return ok(res, doc);
   } catch (err) {
-    console.error('markComplete error:', err);
-    return fail(res, 'internal error', 500, req);
+    console.error("completeRequest error:", err);
+    return fail(res, "internal error", 500, req.id);
   }
 };
 
-// إلغاء الطلب من المزوّد
+// PATCH /api/requests/:id/cancel-by-provider
 exports.cancelByProvider = async (req, res) => {
   try {
-    const id = req.params.id;
-    const { providerPhone } = req.body;
-    const reqDoc = await ServiceRequest.findById(id);
-    if (!reqDoc) return fail(res, 'not found', 404);
+    const { id } = req.params;
+    const { providerPhone } = req.body || {};
 
-    reqDoc.status = 'cancelled';
-    reqDoc.cancelledBy = providerPhone;
-    await reqDoc.save();
+    const doc = await ServiceRequest.findById(id);
+    if (!doc) return fail(res, "request not found", 404, req.id);
 
-    return ok(res, reqDoc);
+    if (providerPhone && doc.acceptedByPhone !== providerPhone) {
+      return fail(res, "not your request", 403, req.id);
+    }
+
+    doc.status = "cancelled";
+    doc.cancelledAt = new Date();
+    doc.acceptedByPhone = null;
+    await doc.save();
+
+    return ok(res, doc);
   } catch (err) {
-    console.error('cancelByProvider error:', err);
-    return fail(res, 'internal error', 500, req);
+    console.error("cancelByProvider error:", err);
+    return fail(res, "internal error", 500, req.id);
   }
 };
