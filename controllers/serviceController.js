@@ -1,7 +1,9 @@
 // controllers/serviceController.js
+
 const { ok } = require("../utils/helpers");
 const { getCache, setCache } = require("../utils/cache");
 
+// GET /api/services
 exports.getServices = async (req, res) => {
   const cacheKey = "services:all";
   const cached = getCache(cacheKey);
@@ -21,8 +23,15 @@ exports.getServices = async (req, res) => {
     { code: "keys", name: "فتح سيارة", category: "أخرى", icon: "🔑", basePrice: 35000 },
   ];
 
-  const data = { services, updatedAt: new Date().toISOString() };
-  setCache(cacheKey, data);
+  const data = {
+    count: services.length,
+    services,
+    updatedAt: new Date().toISOString(),
+  };
+
+  // تخزين مؤقت لمدة 5 دقائق
+  setCache(cacheKey, data, 5 * 60 * 1000);
+
   res.setHeader("X-Cache", "MISS");
-  ok(res, data);
+  return ok(res, data);
 };

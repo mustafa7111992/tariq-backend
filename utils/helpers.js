@@ -17,26 +17,16 @@ function getDistanceKm(lat1, lng1, lat2, lng2) {
 }
 
 function ok(res, data = {}, meta = {}) {
-  return res.json({
-    ok: true,
-    data,
-    meta,
-    timestamp: new Date().toISOString(),
-  });
+  return res.json({ ok: true, data, meta, timestamp: new Date().toISOString() });
 }
 
-function fail(res, msg = "internal error", code = 500, reqId = null) {
+function fail(res, msg = 'internal error', code = 500, req) {
   return res.status(code).json({
     ok: false,
     error: msg,
     timestamp: new Date().toISOString(),
-    ...(reqId ? { requestId: reqId } : {}),
+    requestId: req?.id,
   });
 }
 
-module.exports = {
-  deg2rad,
-  getDistanceKm,
-  ok,
-  fail,
-};
+module.exports = { deg2rad, getDistanceKm, ok, fail };

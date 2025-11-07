@@ -1,9 +1,8 @@
 // utils/cache.js
 const cache = new Map();
-const DEFAULT_TTL = 5 * 60 * 1000;
 
-function setCache(key, value, ttl = DEFAULT_TTL) {
-  cache.set(key, { value, expiry: Date.now() + ttl });
+function setCache(key, value, ttlMs) {
+  cache.set(key, { value, expiry: Date.now() + (ttlMs || 5 * 60 * 1000) });
 }
 
 function getCache(key) {
@@ -18,14 +17,9 @@ function getCache(key) {
 
 function clearCache(pattern) {
   if (!pattern) return cache.clear();
-  for (const k of cache.keys()) {
-    if (k.includes(pattern)) cache.delete(k);
+  for (const key of cache.keys()) {
+    if (key.includes(pattern)) cache.delete(key);
   }
 }
 
-module.exports = {
-  cache,
-  setCache,
-  getCache,
-  clearCache,
-};
+module.exports = { setCache, getCache, clearCache };

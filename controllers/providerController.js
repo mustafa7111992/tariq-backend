@@ -1,13 +1,15 @@
 // controllers/providerController.js
+
 const ProviderSettings = require("../models/ProviderSettings");
 const ServiceRequest = require("../models/ServiceRequest");
 const { ok, fail } = require("../utils/helpers");
 const { logActivity } = require("../utils/activityLogger");
-const { getCache, setCache } = require("../utils/cache");
+const { getCache, setCache, clearCache } = require("../utils/cache");
 
+// GET /api/provider/settings?phone=...
 exports.getSettings = async (req, res) => {
   const { phone } = req.query;
-  if (!phone) return fail(res, "phone is required", 400, req.id);
+  if (!phone) return fail(res, "phone is required", 400, req);
 
   const doc = await ProviderSettings.findOne({ phone }).lean();
   if (!doc) {
@@ -19,12 +21,13 @@ exports.getSettings = async (req, res) => {
       isOnline: true,
     });
   }
-  ok(res, doc);
+  return ok(res, doc);
 };
 
+// POST /api/provider/settings
 exports.updateSettings = async (req, res) => {
   const { phone } = req.body;
-  if (!phone) return fail(res, "phone is required", 400, req.id);
+  if (!phone) return fail(res, "phone is required", 400, req);
 
   const doc = await ProviderSettings.findOneAndUpdate(
     { phone },
@@ -44,13 +47,17 @@ exports.updateSettings = async (req, res) => {
     { upsert: true, new: true }
   );
 
-  ok(res, doc);
+  // ممكن تنظف كاش الإحصائيات
+  clearCache(`provider:stats:${phone}`);
+
+  return ok(res, doc);
 };
 
+// POST /api/provider/status
 exports.updateStatus = async (req, res) => {
   const { phone, status } = req.body;
-  if (!phone) return fail(res, "phone is required", 400, req.id);
-  if (!status) return fail(res, "status is required", 400, req.id);
+  if (!phone) return fail(res, "phone is required", 400, req);
+  if (!status) return fail(res, "status is required", 400, req);
 
   const isOnline = status === "online";
 
@@ -60,13 +67,17 @@ exports.updateStatus = async (req, res) => {
     { upsert: true, new: true }
   );
 
-  await logActivity(req, "provider_status_change", { status });
-  ok(res, doc);
+  await logActivity("provider_status_change", req, { status });
+
+  return ok(res, doc);
 };
 
+// POST /api/provider/location
 exports.updateLocation = async (req, res) => {
   const { phone, lat, lng } = req.body;
-  if (!phone) return fail(res, "phone is required", 400, req.id);
+  if (!phone) return fail(res, "phone is required", 400, req);
+  if (lat == null || lng == null)
+    return fail(res, "lat and lng are required", 400, req);
 
   const location = {
     type: "Point",
@@ -82,12 +93,13 @@ exports.updateLocation = async (req, res) => {
     { upsert: true, new: true }
   );
 
-  ok(res, doc);
+  return ok(res, doc);
 };
 
+// GET /api/provider/stats?phone=...
 exports.getStats = async (req, res) => {
   const { phone } = req.query;
-  if (!phone) return fail(res, "phone is required", 400, req.id);
+  if (!phone) return fail(res, "phone is required", 400, req);
 
   const cacheKey = `provider:stats:${phone}`;
   const cached = getCache(cacheKey);
@@ -117,6 +129,7 @@ exports.getStats = async (req, res) => {
 
   let avgRating = null;
   let ratingCount = 0;
+
   if (rated.length > 0) {
     avgRating =
       rated.reduce((sum, r) => sum + r.providerRating.score, 0) /
@@ -140,5 +153,6 @@ exports.getStats = async (req, res) => {
 
   setCache(cacheKey, stats, 2 * 60 * 1000);
   res.setHeader("X-Cache", "MISS");
-  ok(res, stats);
+
+  return ok(res, stats);
 };

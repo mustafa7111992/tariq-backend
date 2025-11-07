@@ -1,7 +1,7 @@
 // utils/activityLogger.js
-const ActivityLog = require("../models/ActivityLog");
+const ActivityLog = require('../models/ActivityLog');
 
-async function logActivity(req, action, metadata = {}) {
+async function logActivity(action, req, metadata = {}) {
   try {
     await ActivityLog.create({
       action,
@@ -9,11 +9,11 @@ async function logActivity(req, action, metadata = {}) {
       userId: req.body.userId,
       requestId: req.params.id,
       metadata,
-      ip: req.ip || req.headers["x-forwarded-for"],
-      userAgent: req.headers["user-agent"],
+      ip: req.ip || req.headers['x-forwarded-for'],
+      userAgent: req.headers['user-agent'],
     });
   } catch (err) {
-    console.error("❌ failed to log activity", err.message);
+    console.error('Failed to log activity:', err);
   }
 }
 

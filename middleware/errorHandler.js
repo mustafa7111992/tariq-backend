@@ -1,33 +1,25 @@
 // middleware/errorHandler.js
-const { fail } = require("../utils/helpers");
+const { fail } = require('../utils/helpers');
 
-function errorHandler(err, req, res, next) {
-  const status = err.statusCode || 500;
+function notFound(_req, res) {
+  return res.status(404).json({ ok: false, error: 'Not found' });
+}
 
-  if (status >= 500) {
-    console.error("❌ Server error:", {
-      msg: err.message,
-      stack: err.stack,
-      reqId: req.id,
-      url: req.url,
-      body: req.body,
-    });
+function errorHandler(err, req, res, _next) {
+  const statusCode = err.statusCode || 500;
+  if (err.name === 'CastError') {
+    return fail(res, 'Invalid ID format', 400, req);
   }
-
-  // mongoose duplicate
   if (err.code === 11000) {
     const field = Object.keys(err.keyPattern || {})[0];
-    return fail(res, `${field} already exists`, 409, req.id);
+    return fail(res, `${field} already exists`, 409, req);
   }
-
-  return res.status(status).json({
+  return res.status(statusCode).json({
     ok: false,
-    error:
-      process.env.NODE_ENV === "production" && status >= 500
-        ? "server error"
-        : err.message,
+    error: err.message || 'server error',
     requestId: req.id,
+    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
   });
 }
 
-module.exports = errorHandler;
+module.exports = { notFound, errorHandler };
