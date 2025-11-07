@@ -1,15 +1,13 @@
 // controllers/serviceController.js
-
-const { ok } = require("../utils/helpers");
 const { getCache, setCache } = require("../utils/cache");
 
-// GET /api/services
 exports.getServices = async (req, res) => {
   const cacheKey = "services:all";
   const cached = getCache(cacheKey);
   if (cached) {
     res.setHeader("X-Cache", "HIT");
-    return ok(res, cached);
+    // 👈 رجّع مباشرة بدون ok()
+    return res.json(cached);
   }
 
   const services = [
@@ -23,15 +21,10 @@ exports.getServices = async (req, res) => {
     { code: "keys", name: "فتح سيارة", category: "أخرى", icon: "🔑", basePrice: 35000 },
   ];
 
-  const data = {
-    count: services.length,
-    services,
-    updatedAt: new Date().toISOString(),
-  };
+  const data = { services, updatedAt: new Date().toISOString() };
 
-  // تخزين مؤقت لمدة 5 دقائق
-  setCache(cacheKey, data, 5 * 60 * 1000);
-
+  setCache(cacheKey, data);
   res.setHeader("X-Cache", "MISS");
-  return ok(res, data);
+  // 👈 هنا هم رجّع الشكل القديم
+  res.json(data);
 };
