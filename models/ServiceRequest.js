@@ -1,38 +1,59 @@
 // models/ServiceRequest.js
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const serviceRequestSchema = new mongoose.Schema({
-  serviceType: { type: String, required: true },
-  notes: String,
-  city: { type: String, default: null },
-  location: {
-    type: { type: String, default: 'Point' },
-    coordinates: [Number],
-  },
-  status: { type: String, default: 'pending' }, // pending | accepted | on-the-way | in-progress | done | cancelled
-  acceptedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
-  acceptedByPhone: { type: String, default: null },
-  customerPhone: { type: String, default: null },
-  acceptedAt: Date,
-  completedAt: Date,
-  cancelledAt: Date,
-  estimatedArrival: Date,
-  providerRating: {
-    score: { type: Number, min: 1, max: 5 },
-    comment: String,
-    ratedAt: Date,
-  },
-  customerRating: {
-    score: { type: Number, min: 1, max: 5 },
-    comment: String,
-    ratedAt: Date,
-  },
-}, { timestamps: true });
+const ServiceRequestSchema = new mongoose.Schema(
+  {
+    serviceType: { type: String, required: true },
+    notes: { type: String, default: "" },
+    city: { type: String, default: null },
 
-serviceRequestSchema.index({ location: '2dsphere' });
-serviceRequestSchema.index({ status: 1, acceptedByPhone: 1 });
-serviceRequestSchema.index({ customerPhone: 1, createdAt: -1 });
-serviceRequestSchema.index({ acceptedByPhone: 1, status: 1 });
-serviceRequestSchema.index({ serviceType: 1, status: 1 });
+    // مهم 👇
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number], // [lng, lat]
+      },
+    },
 
-module.exports = mongoose.model('ServiceRequest', serviceRequestSchema);
+    customerPhone: { type: String, index: true },
+    status: {
+      type: String,
+      enum: [
+        "pending",
+        "accepted",
+        "on-the-way",
+        "in-progress",
+        "done",
+        "cancelled",
+      ],
+      default: "pending",
+      index: true,
+    },
+
+    acceptedByPhone: { type: String, default: null, index: true },
+    acceptedAt: Date,
+    completedAt: Date,
+    cancelledAt: Date,
+
+    providerRating: {
+      score: Number,
+      comment: String,
+      ratedAt: Date,
+    },
+    customerRating: {
+      score: Number,
+      comment: String,
+      ratedAt: Date,
+    },
+  },
+  { timestamps: true }
+);
+
+// هذا اللي كان ناقص 👇
+ServiceRequestSchema.index({ location: "2dsphere" });
+
+module.exports = mongoose.model("ServiceRequest", ServiceRequestSchema);
