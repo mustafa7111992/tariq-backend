@@ -48,14 +48,7 @@ router.get(
   requestController.getRequestsByPhone
 );
 
-// POST /api/requests/:id/cancel  (إلغاء من الزبون)
-router.post(
-  "/:id/cancel",
-  [param("id").isMongoId(), validate],
-  requestController.cancelByCustomer
-);
-
-// GET /api/requests/for-provider
+// GET /api/requests/for-provider - 👈 لازم يكون قبل /:id
 router.get(
   "/for-provider",
   [
@@ -67,6 +60,13 @@ router.get(
     validate,
   ],
   requestController.getForProvider
+);
+
+// POST /api/requests/:id/cancel  (إلغاء من الزبون)
+router.post(
+  "/:id/cancel",
+  [param("id").isMongoId(), validate],
+  requestController.cancelByCustomer
 );
 
 // PATCH /api/requests/:id/accept
