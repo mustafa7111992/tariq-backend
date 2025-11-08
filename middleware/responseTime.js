@@ -2,14 +2,10 @@
 module.exports = (req, res, next) => {
   const start = process.hrtime.bigint();
 
-  res.on('finish', () => {
+  // استعمل once حتى ما يتنفذ أكثر من مرة
+  res.once('finish', () => {
     const end = process.hrtime.bigint();
     const duration = Number(end - start) / 1_000_000; // ms
-
-    // ما نحاول نضيف هيدر بعد ما انرسل
-    if (!res.headersSent) {
-      res.setHeader('X-Response-Time', `${duration.toFixed(2)}ms`);
-    }
 
     const logData = {
       method: req.method,
