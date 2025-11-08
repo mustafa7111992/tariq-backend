@@ -11,12 +11,15 @@ const { errorHandler, notFound } = require('./middleware/errorHandler');
 const rateLimiter = require('./middleware/rateLimiter');
 const requestId = require('./middleware/requestId');
 const responseTimeLogger = require('./middleware/responseTime');
+
+// routes
 const adminRoutes = require('./routes/admin');
 const userRoutes = require('./routes/users');
 const requestRoutes = require('./routes/requests');
 const providerRoutes = require('./routes/provider');
 const serviceRoutes = require('./routes/services');
 const healthRoutes = require('./routes/health');
+const authRoutes = require('./routes/auth'); // 👈 الجديد
 
 const app = express();
 
@@ -40,6 +43,7 @@ app.use('/api', rateLimiter);
 
 // routes
 app.use('/health', healthRoutes);
+app.use('/api/auth', authRoutes);       // 👈 مسار تسجيل الدخول بالفirebase
 app.use('/api/users', userRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/provider', providerRoutes);
