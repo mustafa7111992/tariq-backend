@@ -1,3 +1,4 @@
+// NOTE: Current startup warning about duplicate phone index comes from a schema file, not this validator.
 const { validationResult } = require('express-validator');
 
 function validate(rules) {
@@ -11,9 +12,7 @@ function validate(rules) {
 
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(422).json({
-          errors: errors.array()
-        });
+        return res.status(422).json({ errors: errors.array() });
       }
       next();
     } catch (err) {
