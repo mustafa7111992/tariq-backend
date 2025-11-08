@@ -19,7 +19,8 @@ const requestRoutes = require('./routes/requests');
 const providerRoutes = require('./routes/provider');
 const serviceRoutes = require('./routes/services');
 const healthRoutes = require('./routes/health');
-const authRoutes = require('./routes/auth'); // 👈 الجديد
+const authRoutes = require('./routes/auth');         // تسجيل الدخول القديم (فايربيس أو غيره)
+const whatsappRoutes = require('./routes/whatsapp'); // 👈 الجديد للـ Twilio / واتساب
 
 const app = express();
 
@@ -43,7 +44,13 @@ app.use('/api', rateLimiter);
 
 // routes
 app.use('/health', healthRoutes);
-app.use('/api/auth', authRoutes);       // 👈 مسار تسجيل الدخول بالفirebase
+
+// مصادقة (اللي كانت عندك)
+app.use('/api/auth', authRoutes);
+
+// واتساب / إرسال رمز
+app.use('/api/whatsapp', whatsappRoutes);
+
 app.use('/api/users', userRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/provider', providerRoutes);
