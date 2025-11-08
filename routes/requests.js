@@ -49,10 +49,11 @@ router.post(
 router.get(
   '/for-provider',
   [
-    query('lat').notEmpty().withMessage('lat is required'),
-    query('lng').notEmpty().withMessage('lng is required'),
-    query('serviceType').optional(),
-    query('phone').optional(),
+    query('phone').notEmpty().withMessage('phone is required'), // مطلوب الآن
+    query('lat').optional().isFloat({ min: -90, max: 90 }),
+    query('lng').optional().isFloat({ min: -180, max: 180 }),
+    query('serviceType').optional().isString(),
+    query('maxKm').optional().isFloat({ min: 1, max: 100 }),
     validate,
   ],
   requestController.getForProvider
@@ -72,28 +73,44 @@ router.patch(
 // PATCH /api/requests/:id/on-the-way
 router.patch(
   '/:id/on-the-way',
-  [param('id').isMongoId(), body('providerPhone').optional(), validate],
+  [
+    param('id').isMongoId(),
+    body('providerPhone').notEmpty().withMessage('providerPhone is required'),
+    validate,
+  ],
   requestController.markOnTheWay
 );
 
 // PATCH /api/requests/:id/in-progress
 router.patch(
   '/:id/in-progress',
-  [param('id').isMongoId(), body('providerPhone').optional(), validate],
+  [
+    param('id').isMongoId(),
+    body('providerPhone').notEmpty().withMessage('providerPhone is required'),
+    validate,
+  ],
   requestController.markInProgress
 );
 
 // PATCH /api/requests/:id/complete
 router.patch(
   '/:id/complete',
-  [param('id').isMongoId(), body('providerPhone').optional(), validate],
+  [
+    param('id').isMongoId(),
+    body('providerPhone').notEmpty().withMessage('providerPhone is required'),
+    validate,
+  ],
   requestController.completeRequest
 );
 
 // PATCH /api/requests/:id/cancel-by-provider
 router.patch(
   '/:id/cancel-by-provider',
-  [param('id').isMongoId(), body('providerPhone').optional(), validate],
+  [
+    param('id').isMongoId(),
+    body('providerPhone').notEmpty().withMessage('providerPhone is required'),
+    validate,
+  ],
   requestController.cancelByProvider
 );
 
@@ -102,9 +119,9 @@ router.post(
   '/:id/rate-provider',
   [
     param('id').isMongoId(),
-    body('score').isInt({ min: 1, max: 5 }),
-    body('comment').optional().isString(),
-    body('phone').optional().isString(),
+    body('score').isInt({ min: 1, max: 5 }).withMessage('score must be between 1 and 5'),
+    body('comment').optional().isString().isLength({ max: 500 }),
+    body('phone').notEmpty().withMessage('phone is required'),
     validate,
   ],
   requestController.rateProvider
@@ -115,9 +132,9 @@ router.post(
   '/:id/rate-customer',
   [
     param('id').isMongoId(),
-    body('score').isInt({ min: 1, max: 5 }),
-    body('comment').optional().isString(),
-    body('phone').optional().isString(),
+    body('score').isInt({ min: 1, max: 5 }).withMessage('score must be between 1 and 5'),
+    body('comment').optional().isString().isLength({ max: 500 }),
+    body('phone').notEmpty().withMessage('phone is required'),
     validate,
   ],
   requestController.rateCustomer

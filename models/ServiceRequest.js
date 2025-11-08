@@ -40,20 +40,24 @@ const ServiceRequestSchema = new mongoose.Schema(
     cancelledAt: Date,
 
     providerRating: {
-      score: Number,
-      comment: String,
-      ratedAt: Date,
+      score: { type: Number, min: 1, max: 5 },
+      comment: { type: String, default: "" },
+      ratedAt: { type: Date, default: Date.now },
     },
     customerRating: {
-      score: Number,
-      comment: String,
-      ratedAt: Date,
+      score: { type: Number, min: 1, max: 5 },
+      comment: { type: String, default: "" },
+      ratedAt: { type: Date, default: Date.now },
     },
   },
   { timestamps: true }
 );
 
-// هذا اللي كان ناقص 👇
+// Indexes للأداء الأمثل
 ServiceRequestSchema.index({ location: "2dsphere" });
+ServiceRequestSchema.index({ status: 1, createdAt: -1 }); // للفلترة والترتيب
+ServiceRequestSchema.index({ acceptedByPhone: 1, status: 1 }); // لطلبات المزود
+ServiceRequestSchema.index({ customerPhone: 1, createdAt: -1 }); // لطلبات الزبون
+ServiceRequestSchema.index({ serviceType: 1, status: 1 }); // لفلترة نوع الخدمة
 
 module.exports = mongoose.model("ServiceRequest", ServiceRequestSchema);

@@ -4,34 +4,51 @@ const User = require("../models/User");
 const { ok, fail } = require("../utils/helpers");
 const { logActivity } = require("../utils/activityLogger");
 
-// POST /api/users
-exports.createOrLoginUser = async (req, res) => {
-  const { name, phone, role, serviceType, city } = req.body;
+// POST /api/users - للتحديث فقط بعد التحقق من OTP
+exports.updateUser = async (req, res) => {
+  const { userId, name, serviceType, city } = req.body;
 
-  if (!phone) {
-    return fail(res, "phone is required", 400, req);
+  if (!userId) {
+    return fail(res, "userId is required", 400, req);
   }
 
-  let user = await User.findOne({ phone });
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return fail(res, "user not found", 404, req);
+    }
 
-  if (user) {
+    // تحديث البيانات
+    if (name !== undefined) user.name = name;
+    if (serviceType !== undefined) user.serviceType = serviceType;
+    if (city !== undefined) user.city = city;
+    
     user.lastLogin = new Date();
     await user.save();
-    await logActivity("user_login", req, { userId: user._id });
+
+    await logActivity("user_update", req, { userId: user._id });
     return ok(res, user);
+  } catch (error) {
+    console.error('updateUser error:', error);
+    return fail(res, "internal error", 500, req);
   }
+};
 
-  user = await User.create({
-    name: name || "",
-    phone,
-    role: role || "customer",
-    serviceType: serviceType || null,
-    city: city || null,
-    lastLogin: new Date(),
-  });
+// GET /api/users/:id - الحصول على معلومات يوزر محدد
+exports.getUserById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const user = await User.findById(id).select('-__v').lean();
+    if (!user) {
+      return fail(res, "user not found", 404, req);
+    }
 
-  await logActivity("user_register", req, { userId: user._id });
-  return ok(res, user);
+    return ok(res, user);
+  } catch (error) {
+    console.error('getUserById error:', error);
+    return fail(res, "internal error", 500, req);
+  }
 };
 
 // GET /api/users

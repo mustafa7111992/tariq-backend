@@ -1,17 +1,18 @@
 // models/OtpCode.js
 const mongoose = require('mongoose');
 
-const otpCodeSchema = new mongoose.Schema(
+const otpSchema = new mongoose.Schema(
   {
-    phone: { type: String, required: true },
+    phone: { type: String, required: true, unique: true, index: true },
     code: { type: String, required: true },
-    // نخليه ينتهي بعد 5 دقايق
-    expiresAt: { type: Date, required: true },
+    expiresAt: { type: Date, required: true, index: { expireAfterSeconds: 0 } }, // TTL index
+    role: { type: String, default: 'customer' },
+    purpose: { type: String, default: 'login' },
+    attempts: { type: Number, default: 0 },
   },
-  { timestamps: true }
+  {
+    timestamps: true, // 👈 هذا اللي يخلي updatedAt موجود
+  }
 );
 
-// index عالانتهاء
-otpCodeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-
-module.exports = mongoose.model('OtpCode', otpCodeSchema);
+module.exports = mongoose.model('OtpCode', otpSchema);

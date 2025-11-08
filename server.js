@@ -19,8 +19,8 @@ const requestRoutes = require('./routes/requests');
 const providerRoutes = require('./routes/provider');
 const serviceRoutes = require('./routes/services');
 const healthRoutes = require('./routes/health');
-const authRoutes = require('./routes/auth');         // تسجيل الدخول القديم (فايربيس أو غيره)
-const whatsappRoutes = require('./routes/whatsapp'); // 👈 الجديد للـ Twilio / واتساب
+const authRoutes = require('./routes/auth');         // Legacy auth (deprecated - use whatsapp instead)
+const whatsappRoutes = require('./routes/whatsapp'); // Modern OTP authentication via WhatsApp
 
 const app = express();
 
@@ -39,29 +39,49 @@ app.use(helmet({ crossOriginEmbedderPolicy: false }));
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// rate limit على مسار /api بس
-app.use('/api', rateLimiter);
+// General rate limiting for all API routes
+app.use('/api', rateLimiter.general);
 
-// routes
+// Public routes (no rate limiting)
 app.use('/health', healthRoutes);
 
-// مصادقة (اللي كانت عندك)
-app.use('/api/auth', authRoutes);
+// Authentication routes (stricter rate limiting)
+app.use('/api/auth', rateLimiter.auth, authRoutes);       // Legacy - use /api/whatsapp instead
+app.use('/api/whatsapp', rateLimiter.otp, whatsappRoutes); // Primary authentication method
 
-// واتساب / إرسال رمز
-app.use('/api/whatsapp', whatsappRoutes);
-
+// Protected API routes (rate limited)
 app.use('/api/users', userRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/provider', providerRoutes);
 app.use('/api/services', serviceRoutes);
-app.use('/api/admin', adminRoutes);
+app.use('/api/admin', rateLimiter.admin, adminRoutes);
 
 // 404 + error
 app.use(notFound);
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => {
+
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`🔐 WhatsApp Auth: http://localhost:${PORT}/api/whatsapp/send-code`);
+  console.log(`📱 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed.');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed.');
+    process.exit(0);
+  });
 });
