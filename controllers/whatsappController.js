@@ -7,13 +7,13 @@ const User = require('../models/User');
 function normalizePhone(raw) {
   if (!raw) return null;
   const p = raw.trim().replace(/\s+/g, ''); // إزالة المسافات
-  
+
   // الأرقام العراقية التي تبدأ بـ 07
   if (p.startsWith('07')) {
     const phone = `+964${p.slice(1)}`;
     return phone;
   }
-  
+
   // الأرقام التي تبدأ بـ +
   if (p.startsWith('+')) {
     // التحقق من أن الرقم يحتوي على أرقام فقط بعد +
@@ -22,13 +22,29 @@ function normalizePhone(raw) {
     }
     return p;
   }
-  
+
   // أي رقم آخر نرجعه كما هو بعد التحقق من أنه أرقام فقط
   if (!/^[0-9]+$/.test(p)) {
     return null;
   }
-  
+
   return p;
+}
+
+// نحول الأرقام العربية/الفارسية إلى إنكليزي حتى ما يرفضها
+function normalizeCode(raw = '') {
+  const map = {
+    '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+    '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+    '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
+    '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+  };
+  return raw
+    .toString()
+    .trim()
+    .split('')
+    .map((ch) => map[ch] ?? ch)
+    .join('');
 }
 
 // POST /api/whatsapp/send-code
@@ -36,7 +52,7 @@ function normalizePhone(raw) {
 exports.sendLoginCode = async (req, res) => {
   try {
     const { phone, role, purpose } = req.body;
-    
+
     // التحقق من المدخلات
     if (!phone) {
       return res.status(400).json({ ok: false, error: 'phone is required' });
@@ -44,9 +60,9 @@ exports.sendLoginCode = async (req, res) => {
 
     const normalized = normalizePhone(phone);
     if (!normalized) {
-      return res.status(400).json({ 
-        ok: false, 
-        error: 'invalid phone number format. Please enter a valid phone number' 
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid phone number format. Please enter a valid phone number',
       });
     }
 
@@ -54,12 +70,13 @@ exports.sendLoginCode = async (req, res) => {
     const existingRecord = await OtpCode.findOne({ phone: normalized });
     if (existingRecord) {
       const timeSinceLastRequest = new Date() - existingRecord.updatedAt;
-      if (timeSinceLastRequest < 60000) { // دقيقة واحدة
+      if (timeSinceLastRequest < 60000) {
+        // دقيقة واحدة
         const waitTime = Math.ceil((60000 - timeSinceLastRequest) / 1000);
-        return res.status(429).json({ 
-          ok: false, 
+        return res.status(429).json({
+          ok: false,
           error: 'please wait before requesting new code',
-          waitTime: waitTime
+          waitTime: waitTime,
         });
       }
     }
@@ -75,28 +92,32 @@ exports.sendLoginCode = async (req, res) => {
       }
     }
 
-    // توليد كود أكثر أماناً
+    // توليد كود 6 أرقام
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 دقائق
 
     await OtpCode.findOneAndUpdate(
       { phone: normalized },
-      { 
-        phone: normalized, 
-        code, 
-        expiresAt, 
-        role: role || 'customer', 
+      {
+        phone: normalized,
+        code,
+        expiresAt,
+        role: role || 'customer',
         purpose: purpose || 'login',
-        attempts: 0 // عداد المحاولات
+        attempts: 0, // عداد المحاولات
       },
-      { upsert: true, new: true },
+      { upsert: true, new: true }
     );
 
     // إرسال الواتساب
     await sendWhatsapp({ to: normalized, code });
 
-    // Logging للمراقبة
-    console.log(`OTP sent to ${normalized}, purpose: ${purpose || 'login'}, role: ${role || 'customer'}`);
+    // Logging
+    console.log(
+      `OTP sent to ${normalized}, purpose: ${purpose || 'login'}, role: ${
+        role || 'customer'
+      }`
+    );
 
     return res.status(200).json({ ok: true, message: 'code sent via whatsapp' });
   } catch (err) {
@@ -110,7 +131,7 @@ exports.sendLoginCode = async (req, res) => {
 exports.verifyCode = async (req, res) => {
   try {
     const { phone, code } = req.body;
-    
+
     // التحقق من المدخلات
     if (!phone || !code) {
       return res
@@ -120,9 +141,9 @@ exports.verifyCode = async (req, res) => {
 
     const normalized = normalizePhone(phone);
     if (!normalized) {
-      return res.status(400).json({ 
-        ok: false, 
-        error: 'invalid phone number format' 
+      return res.status(400).json({
+        ok: false,
+        error: 'invalid phone number format',
       });
     }
 
@@ -145,25 +166,28 @@ exports.verifyCode = async (req, res) => {
     // التحقق من عدد المحاولات (حماية من brute force)
     if (record.attempts >= 3) {
       await OtpCode.deleteOne({ phone: normalized });
-      return res.status(429).json({ 
-        ok: false, 
-        error: 'too many attempts, request new code' 
+      return res.status(429).json({
+        ok: false,
+        error: 'too many attempts, request new code',
       });
     }
 
+    // نحول الكود اللي جانا حتى لو هو عربي
+    const userCode = normalizeCode(code);
+
     // التحقق من صحة الكود
-    if (record.code !== code.trim()) {
+    if (record.code !== userCode) {
       // زيادة عداد المحاولات
       await OtpCode.findOneAndUpdate(
         { phone: normalized },
         { $inc: { attempts: 1 } }
       );
-      
+
       const remainingAttempts = 3 - (record.attempts + 1);
-      return res.status(400).json({ 
-        ok: false, 
+      return res.status(400).json({
+        ok: false,
         error: 'invalid code',
-        remainingAttempts: remainingAttempts > 0 ? remainingAttempts : 0
+        remainingAttempts: remainingAttempts > 0 ? remainingAttempts : 0,
       });
     }
 
@@ -200,8 +224,10 @@ exports.verifyCode = async (req, res) => {
     // حذف الكود بعد الاستخدام الناجح
     await OtpCode.deleteOne({ phone: normalized });
 
-    // Logging للمراقبة
-    console.log(`User verified successfully: ${normalized}, purpose: ${purpose}`);
+    // Logging
+    console.log(
+      `User verified successfully: ${normalized}, purpose: ${purpose}`
+    );
 
     return res.json({
       ok: true,
