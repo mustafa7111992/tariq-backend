@@ -1,4 +1,3 @@
-// routes/whatsapp.js
 const express = require('express');
 const { body } = require('express-validator');
 const validate = require('../middleware/validate');
@@ -13,9 +12,15 @@ router.post(
   '/send-code',
   [
     body('phone').notEmpty().withMessage('phone is required'),
-    body('role').optional().isIn(['customer', 'provider']).withMessage('role must be customer or provider'),
-    body('purpose').optional().isIn(['login', 'register']).withMessage('purpose must be login or register'),
-    validate,
+    body('role')
+      .optional()
+      .isIn(['customer', 'provider'])
+      .withMessage('role must be customer or provider'),
+    body('purpose')
+      .optional()
+      .isIn(['login', 'register'])
+      .withMessage('purpose must be login or register'),
+    validate(), // ✅ تم تعديلها
   ],
   sendLoginCode
 );
@@ -32,7 +37,7 @@ router.post(
       .withMessage('code must be 6 digits')
       .isNumeric()
       .withMessage('code must be numeric'),
-    validate,
+    validate(), // ✅ تم تعديلها
   ],
   verifyCode
 );

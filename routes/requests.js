@@ -1,4 +1,3 @@
-// routes/requests.js
 const express = require('express');
 const { body, query, param } = require('express-validator');
 const validate = require('../middleware/validate');
@@ -11,7 +10,7 @@ router.post(
   '/',
   [
     body('serviceType').notEmpty().withMessage('serviceType is required'),
-    validate,
+    validate(), // 👈 مهم
   ],
   requestController.createRequest
 );
@@ -26,7 +25,7 @@ router.get(
       .optional()
       .isIn(['pending', 'accepted', 'on-the-way', 'in-progress', 'done', 'cancelled']),
     query('serviceType').optional().isString(),
-    validate,
+    validate(), // 👈
   ],
   requestController.getRequests
 );
@@ -34,14 +33,14 @@ router.get(
 // GET /api/requests/by-phone
 router.get(
   '/by-phone',
-  [query('phone').notEmpty().withMessage('phone is required'), validate],
+  [query('phone').notEmpty().withMessage('phone is required'), validate()],
   requestController.getRequestsByPhone
 );
 
 // POST /api/requests/:id/cancel (زبون)
 router.post(
   '/:id/cancel',
-  [param('id').isMongoId(), validate],
+  [param('id').isMongoId(), validate()],
   requestController.cancelByCustomer
 );
 
@@ -49,12 +48,12 @@ router.post(
 router.get(
   '/for-provider',
   [
-    query('phone').notEmpty().withMessage('phone is required'), // مطلوب الآن
+    query('phone').notEmpty().withMessage('phone is required'),
     query('lat').optional().isFloat({ min: -90, max: 90 }),
     query('lng').optional().isFloat({ min: -180, max: 180 }),
     query('serviceType').optional().isString(),
     query('maxKm').optional().isFloat({ min: 1, max: 100 }),
-    validate,
+    validate(), // 👈
   ],
   requestController.getForProvider
 );
@@ -65,7 +64,7 @@ router.patch(
   [
     param('id').isMongoId(),
     body('providerPhone').notEmpty().withMessage('providerPhone is required'),
-    validate,
+    validate(),
   ],
   requestController.acceptRequest
 );
@@ -76,7 +75,7 @@ router.patch(
   [
     param('id').isMongoId(),
     body('providerPhone').notEmpty().withMessage('providerPhone is required'),
-    validate,
+    validate(),
   ],
   requestController.markOnTheWay
 );
@@ -87,7 +86,7 @@ router.patch(
   [
     param('id').isMongoId(),
     body('providerPhone').notEmpty().withMessage('providerPhone is required'),
-    validate,
+    validate(),
   ],
   requestController.markInProgress
 );
@@ -98,7 +97,7 @@ router.patch(
   [
     param('id').isMongoId(),
     body('providerPhone').notEmpty().withMessage('providerPhone is required'),
-    validate,
+    validate(),
   ],
   requestController.completeRequest
 );
@@ -109,7 +108,7 @@ router.patch(
   [
     param('id').isMongoId(),
     body('providerPhone').notEmpty().withMessage('providerPhone is required'),
-    validate,
+    validate(),
   ],
   requestController.cancelByProvider
 );
@@ -122,7 +121,7 @@ router.post(
     body('score').isInt({ min: 1, max: 5 }).withMessage('score must be between 1 and 5'),
     body('comment').optional().isString().isLength({ max: 500 }),
     body('phone').notEmpty().withMessage('phone is required'),
-    validate,
+    validate(),
   ],
   requestController.rateProvider
 );
@@ -135,7 +134,7 @@ router.post(
     body('score').isInt({ min: 1, max: 5 }).withMessage('score must be between 1 and 5'),
     body('comment').optional().isString().isLength({ max: 500 }),
     body('phone').notEmpty().withMessage('phone is required'),
-    validate,
+    validate(),
   ],
   requestController.rateCustomer
 );
