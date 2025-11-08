@@ -9,7 +9,7 @@ router.post(
   [
     body("phone").notEmpty().withMessage("phone is required"),
     body("role").optional().isIn(["customer", "provider", "admin"]),
-    validate,
+    validate(),
   ],
   userController.createOrLoginUser
 );
@@ -19,7 +19,7 @@ router.get(
   [
     query("page").optional().isInt({ min: 1 }),
     query("limit").optional().isInt({ min: 1, max: 100 }),
-    validate,
+    validate(),
   ],
   userController.getUsers
 );

@@ -18,7 +18,7 @@ router.post(
     body("phone").notEmpty(),
     body("lat").isFloat({ min: -90, max: 90 }),
     body("lng").isFloat({ min: -180, max: 180 }),
-    validate,
+    validate(),
   ],
   providerController.updateLocation
 );
