@@ -1,11 +1,25 @@
-// middleware/validate.js
 const { validationResult } = require('express-validator');
-const { fail } = require('../utils/helpers');
 
-module.exports = function validate(req, res, next) {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return fail(res, errors.array()[0].msg, 400, req);
-  }
-  next();
-};
+function validate(rules) {
+  // Normalize to array
+  const chains = Array.isArray(rules) ? rules : [rules];
+
+  return async (req, res, next) => {
+    try {
+      // Run all validation chains
+      await Promise.all(chains.map(chain => chain.run(req)));
+
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(422).json({
+          errors: errors.array()
+        });
+      }
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+module.exports = validate;
