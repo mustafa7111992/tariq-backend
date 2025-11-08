@@ -1,70 +1,69 @@
 // middleware/rateLimiter.js
 const rateLimit = require('express-rate-limit');
 
-// عام
-const generalLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 100,
+function buildHandler(message, messageAr) {
+  return (req, res) => {
+    res.status(429).json({
+      ok: false,
+      error: message,
+      error_ar: messageAr,
+      path: req.originalUrl,
+      timestamp: new Date().toISOString(),
+    });
+  };
+}
+
+// 1) لعموم /api
+const general = rateLimit({
+  windowMs: 60 * 1000,       // 1 دقيقة
+  max: 100,                  // 100 طلب
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    ok: false,
-    error: 'Too many requests, please try again later',
-    error_ar: 'عدد الطلبات كثير، حاول بعد شوية',
-  },
-  onLimitReached: (req) => {
-    console.log(`Rate limit exceeded for IP: ${req.ip}, URL: ${req.url}`);
-  },
+  handler: buildHandler(
+    'Too many requests, please try again later',
+    'عدد الطلبات كثير، حاول بعد شوية'
+  ),
 });
 
-// تسجيل الدخول / OTP عادي
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+// 2) للـ /api/auth (القديم)
+const auth = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 دقيقة
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    ok: false,
-    error: 'Too many authentication attempts, please try again later',
-    error_ar: 'محاولات تسجيل دخول كثيرة، حاول بعد ربع ساعة',
-  },
-  onLimitReached: (req) => {
-    console.log(`Auth rate limit exceeded for IP: ${req.ip}, URL: ${req.url}`);
-  },
+  handler: buildHandler(
+    'Too many authentication attempts, please try again later',
+    'محاولات تسجيل دخول كثيرة، حاول بعد ربع ساعة'
+  ),
 });
 
-// إرسال واتساب
-const otpLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 3,
+// 3) للواتساب /api/whatsapp
+const otp = rateLimit({
+  windowMs: 60 * 1000,       // 1 دقيقة
+  max: 3,                    // 3 مرات طلب كود
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    ok: false,
-    error: 'Too many OTP requests, please wait before requesting again',
-    error_ar: 'طلبات رمز التحقق كثيرة، انتظر قليلاً',
-  },
-  onLimitReached: (req) => {
-    console.log(`OTP rate limit exceeded for IP: ${req.ip}`);
-  },
+  handler: buildHandler(
+    'Too many OTP requests, please wait before requesting again',
+    'طلبات رمز التحقق كثيرة، انتظر قليلاً'
+  ),
 });
 
-// ادمن
-const adminLimiter = rateLimit({
+// 4) للادمن
+const admin = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: {
-    ok: false,
-    error: 'Admin rate limit exceeded',
-    error_ar: 'تجاوز حد طلبات الإدارة',
-  },
+  handler: buildHandler(
+    'Admin rate limit exceeded',
+    'تجاوزت حد طلبات الإدارة'
+  ),
 });
 
 module.exports = {
-  general: generalLimiter,
-  auth: authLimiter,
-  otp: otpLimiter,
-  admin: adminLimiter,
+  general,
+  auth,
+  otp,
+  admin,
 };
