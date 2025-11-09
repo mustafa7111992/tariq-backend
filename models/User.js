@@ -2,17 +2,28 @@
 const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema({
-  name: String,
-  phone: { type: String, required: true, unique: true },
-  role: { type: String, default: 'customer' },
-  serviceType: String,
-  city: String,
-  isActive: { type: Boolean, default: true },
-  lastLogin: Date,
-}, { timestamps: true });
-
-userSchema.index({ phone: 1 });
-userSchema.index({ role: 1 });
-userSchema.index({ isActive: 1, role: 1 });
+  phone: {
+    type: String,
+    required: true,
+    unique: true,
+  },
+  name: {
+    type: String,
+    required: true,
+  },
+  role: {
+    type: String,
+    enum: ['customer', 'provider', 'admin'],
+    default: 'customer',
+  },
+  isVerified: {
+    type: Boolean,
+    default: false,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
 
 module.exports = mongoose.model('User', userSchema);
