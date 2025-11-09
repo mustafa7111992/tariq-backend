@@ -54,7 +54,7 @@ const otpSchema = new mongoose.Schema(
       default: 'pending',
     },
 
-    // 👇 البيانات المؤقتة للتسجيل الجديد (هذا المفقود!)
+    // 👇 البيانات المؤقتة للتسجيل الجديد
     pendingData: {
       name: {
         type: String,
@@ -65,7 +65,19 @@ const otpSchema = new mongoose.Schema(
         trim: true,
         lowercase: true,
       },
-      // يمكن إضافة بيانات أخرى حسب الحاجة
+      // 👇 بيانات Provider
+      serviceType: {
+        type: String,
+        trim: true,
+      },
+      city: {
+        type: String,
+        trim: true,
+      },
+      carPlate: {
+        type: String,
+        trim: true,
+      },
     },
 
     // IP Address (للأمان)
