@@ -1,8 +1,8 @@
 // controllers/whatsappController.js
 const OtpCode = require('../models/OtpCode');
-const Customer = require('../models/Customer'); // 👈 جديد
-const Provider = require('../models/Provider'); // 👈 جديد
-const { sendWhatsapp } = require('../utils/sendWhatsapp');
+const Customer = require('../models/Customer');
+const Provider = require('../models/Provider');
+const { sendWhatsappBackground } = require('../utils/sendWhatsapp'); // 👈 استخدم Background
 
 // ============================================================================
 // توحيد وتحقق من صحة الرقم
@@ -135,7 +135,7 @@ exports.sendLoginCode = async (req, res) => {
     }
 
     // ============================================================================
-    // حفظ OTP
+    // حفظ OTP في قاعدة البيانات
     // ============================================================================
     await OtpCode.findOneAndUpdate(
       { phone: normalized },
@@ -146,29 +146,45 @@ exports.sendLoginCode = async (req, res) => {
         role: role || 'customer',
         purpose: purpose || (name ? 'register' : 'login'),
         attempts: 0,
-        pendingData, // 👈 حفظ البيانات المؤقتة
+        pendingData,
       },
       { upsert: true, new: true }
     );
 
-    // ============================================================================
-    // إرسال الكود عبر واتساب
-    // ============================================================================
-    await sendWhatsapp({ to: normalized, code });
-
-    console.log(`✅ OTP sent to ${normalized}`, {
+    // طباعة معلومات OTP
+    console.log(`💾 [${new Date().toISOString()}] OTP saved for ${normalized}:`, {
+      code: process.env.NODE_ENV === 'development' ? code : '******',
       purpose: purpose || (name ? 'register' : 'login'),
       role: role || 'customer',
       hasPendingData: Object.keys(pendingData).length > 0,
+      expiresAt: expiresAt.toISOString(),
     });
 
+    // ============================================================================
+    // 🚀 إرسال WhatsApp في Background (الحل!)
+    // ============================================================================
+    sendWhatsappBackground({ to: normalized, code });
+
+    console.log(`✅ [${new Date().toISOString()}] Response sent immediately to client for ${normalized}`);
+
+    // ============================================================================
+    // ✅ إرجاع استجابة فورية (بدون انتظار Twilio)
+    // ============================================================================
     return res.status(200).json({ 
       ok: true, 
-      message: 'code sent via whatsapp' 
+      message: 'code sent via whatsapp',
+      // 👇 للتطوير فقط - شوف الكود في Console
+      ...(process.env.NODE_ENV === 'development' && {
+        debug: {
+          code,
+          phone: normalized,
+          expiresIn: '5 minutes',
+        },
+      }),
     });
 
   } catch (err) {
-    console.error('❌ sendLoginCode error:', err);
+    console.error('❌ [${new Date().toISOString()}] sendLoginCode error:', err);
     return res.status(500).json({ 
       ok: false, 
       error: 'internal error' 
@@ -199,6 +215,8 @@ exports.verifyCode = async (req, res) => {
         error: 'invalid phone number format' 
       });
     }
+
+    console.log(`🔍 [${new Date().toISOString()}] Verifying code for ${normalized}`);
 
     // ============================================================================
     // البحث عن OTP
@@ -278,7 +296,7 @@ exports.verifyCode = async (req, res) => {
           isVerified: true,
         });
 
-        console.log(`✅ New Provider registered: ${normalized}`, {
+        console.log(`✅ [${new Date().toISOString()}] New Provider registered: ${normalized}`, {
           name: user.name,
           serviceType: user.serviceType,
           city: user.city,
@@ -287,7 +305,7 @@ exports.verifyCode = async (req, res) => {
         // تسجيل دخول Provider موجود
         user.isVerified = true;
         await user.save();
-        console.log(`✅ Provider logged in: ${normalized}`);
+        console.log(`✅ [${new Date().toISOString()}] Provider logged in: ${normalized}`);
       }
 
     } else {
@@ -310,14 +328,14 @@ exports.verifyCode = async (req, res) => {
           isVerified: true,
         });
 
-        console.log(`✅ New Customer registered: ${normalized}`, {
+        console.log(`✅ [${new Date().toISOString()}] New Customer registered: ${normalized}`, {
           name: user.name,
         });
       } else if (user) {
         // تسجيل دخول Customer موجود
         user.isVerified = true;
         await user.save();
-        console.log(`✅ Customer logged in: ${normalized}`);
+        console.log(`✅ [${new Date().toISOString()}] Customer logged in: ${normalized}`);
       }
     }
 
@@ -358,10 +376,12 @@ exports.verifyCode = async (req, res) => {
       response.user.completedJobs = user.completedJobs;
     }
 
+    console.log(`✅ [${new Date().toISOString()}] Verification successful for ${normalized}`);
+
     return res.json(response);
 
   } catch (err) {
-    console.error('❌ verifyCode error:', err);
+    console.error(`❌ [${new Date().toISOString()}] verifyCode error:`, err);
     return res.status(500).json({ 
       ok: false, 
       error: 'internal error' 
