@@ -2,18 +2,14 @@
 const express = require('express');
 const router = express.Router();
 const OtpCode = require('../models/OtpCode');
-const User = require('../models/User');
+const Customer = require('../models/Customer');
+const Provider = require('../models/Provider');
 
-// ============================================================================
 // دوال مساعدة
-// ============================================================================
-
-// توليد OTP عشوائي
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-// إرسال OTP عبر Twilio WhatsApp
 async function sendWhatsAppOTP(phone, code) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -40,39 +36,57 @@ async function sendWhatsAppOTP(phone, code) {
 // ============================================================================
 router.post('/send-code', async (req, res) => {
   try {
-    const { phone, role, name } = req.body;
+    const { phone, role, name, serviceType, city, carPlate } = req.body;
 
     // التحقق من المدخلات
     if (!phone || !phone.startsWith('+')) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'رقم الهاتف غير صحيح. يجب أن يبدأ بـ +' 
+        message: 'رقم الهاتف غير صحيح',
       });
     }
 
-    // التحقق من طول الرقم
-    if (phone.length < 10 || phone.length > 15) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'رقم الهاتف غير صحيح' 
-      });
+    // التحقق من وجود المستخدم حسب النوع
+    if (role === 'provider') {
+      const existingProvider = await Provider.findOne({ phone });
+      if (existingProvider) {
+        return res.status(409).json({
+          success: false,
+          message: 'هذا الرقم مسجل مسبقاً كمزود خدمة',
+        });
+      }
+    } else {
+      const existingCustomer = await Customer.findOne({ phone });
+      if (existingCustomer) {
+        return res.status(409).json({
+          success: false,
+          message: 'هذا الرقم مسجل مسبقاً كعميل',
+        });
+      }
     }
 
     // توليد الكود
     const code = generateOTP();
 
-    // تحديد الغرض (تسجيل أو دخول)
+    // تحديد الغرض
     const purpose = name ? 'register' : 'login';
 
-    // إنشاء OTP في قاعدة البيانات
+    // تجهيز البيانات المؤقتة
+    const pendingData = { name };
+
+    if (role === 'provider') {
+      pendingData.serviceType = serviceType;
+      pendingData.city = city;
+      pendingData.carPlate = carPlate;
+    }
+
+    // إنشاء OTP
     const otp = await OtpCode.createOTP({
       phone,
       code,
       role: role || 'customer',
       purpose,
-      pendingData: { 
-        name: name || null,
-      },
+      pendingData,
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
       expiryMinutes: 5,
@@ -81,37 +95,23 @@ router.post('/send-code', async (req, res) => {
     console.log('✅ OTP Created:', {
       phone: otp.phone,
       code: otp.code,
+      role: otp.role,
       purpose: otp.purpose,
-      expiresAt: otp.expiresAt,
-      pendingData: otp.pendingData,
     });
 
     // إرسال الكود عبر واتساب
-    try {
-      await sendWhatsAppOTP(phone, code);
-    } catch (twilioError) {
-      console.error('❌ Twilio Error:', twilioError);
-      
-      // حذف OTP إذا فشل الإرسال
-      await OtpCode.deleteOne({ _id: otp._id });
-      
-      return res.status(500).json({
-        success: false,
-        message: 'فشل إرسال الرمز عبر واتساب. تحقق من رقم الهاتف.',
-      });
-    }
+    await sendWhatsAppOTP(phone, code);
 
     res.status(200).json({
       success: true,
       message: 'تم إرسال الرمز بنجاح',
       expiresIn: otp.remainingSeconds,
     });
-
   } catch (error) {
     console.error('❌ Send OTP Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'خطأ في إرسال الرمز' 
+      message: 'خطأ في إرسال الرمز',
     });
   }
 });
@@ -123,11 +123,10 @@ router.post('/verify-code', async (req, res) => {
   try {
     const { phone, code } = req.body;
 
-    // التحقق من المدخلات
     if (!phone || !code) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'الرجاء إدخال رقم الهاتف والرمز' 
+        message: 'الرجاء إدخال رقم الهاتف والرمز',
       });
     }
 
@@ -135,9 +134,9 @@ router.post('/verify-code', async (req, res) => {
     const otp = await OtpCode.findValidOTP(phone);
 
     if (!otp) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: 'لا توجد عملية تحقق لهذا الرقم. أرسل رمزاً جديداً.' 
+        message: 'لا توجد عملية تحقق لهذا الرقم',
       });
     }
 
@@ -145,41 +144,58 @@ router.post('/verify-code', async (req, res) => {
     try {
       await otp.verify(code);
     } catch (verifyError) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: verifyError.message 
+        message: verifyError.message,
       });
     }
 
-    // البحث عن المستخدم
-    let user = await User.findOne({ phone });
+    let user;
 
-    // إذا كان تسجيل جديد وفيه بيانات مؤقتة
-    if (!user && otp.purpose === 'register' && otp.pendingData?.name) {
-      user = await User.create({
-        phone: phone,
-        name: otp.pendingData.name,
-        role: otp.role,
-        isVerified: true,
-      });
-      console.log('✅ New user created:', {
-        phone: user.phone,
-        name: user.name,
-        role: user.role,
-      });
-    } 
-    // إذا كان مستخدم موجود
-    else if (user) {
+    // إذا كان تسجيل جديد وفيه بيانات
+    if (otp.purpose === 'register' && otp.pendingData?.name) {
+      if (otp.role === 'provider') {
+        // ============================================================================
+        // إنشاء Provider
+        // ============================================================================
+        user = await Provider.create({
+          phone: phone,
+          name: otp.pendingData.name,
+          serviceType: otp.pendingData.serviceType,
+          city: otp.pendingData.city,
+          carPlate: otp.pendingData.carPlate,
+          isVerified: true,
+        });
+        console.log('✅ New Provider created:', user.phone);
+      } else {
+        // ============================================================================
+        // إنشاء Customer
+        // ============================================================================
+        user = await Customer.create({
+          phone: phone,
+          name: otp.pendingData.name,
+          isVerified: true,
+        });
+        console.log('✅ New Customer created:', user.phone);
+      }
+    } else {
+      // تسجيل دخول لمستخدم موجود
+      if (otp.role === 'provider') {
+        user = await Provider.findOne({ phone });
+      } else {
+        user = await Customer.findOne({ phone });
+      }
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'المستخدم غير موجود. الرجاء التسجيل أولاً.',
+        });
+      }
+
       user.isVerified = true;
       await user.save();
       console.log('✅ Existing user verified:', user.phone);
-    } 
-    // إذا مافي مستخدم ومافي بيانات
-    else {
-      return res.status(404).json({ 
-        success: false,
-        message: 'المستخدم غير موجود. الرجاء التسجيل أولاً.' 
-      });
     }
 
     // حذف OTP بعد النجاح
@@ -192,71 +208,23 @@ router.post('/verify-code', async (req, res) => {
         id: user._id,
         phone: user.phone,
         name: user.name,
-        role: user.role,
-        isVerified: user.isVerified,
+        role: otp.role,
+        // بيانات إضافية للـ Provider
+        ...(otp.role === 'provider' && {
+          serviceType: user.serviceType,
+          city: user.city,
+          rating: user.rating,
+          isAvailable: user.isAvailable,
+        }),
       },
     });
-
   } catch (error) {
     console.error('❌ Verify OTP Error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'خطأ في التحقق من الرمز' 
+      message: 'خطأ في التحقق من الرمز',
     });
   }
 });
 
-// ============================================================================
-// POST /api/whatsapp/resend-code - إعادة إرسال الرمز
-// ============================================================================
-router.post('/resend-code', async (req, res) => {
-  try {
-    const { phone } = req.body;
-
-    if (!phone) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'رقم الهاتف مطلوب' 
-      });
-    }
-
-    // حذف الأكواد القديمة
-    await OtpCode.deleteMany({ 
-      phone, 
-      status: { $in: ['pending', 'expired'] } 
-    });
-
-    // توليد كود جديد
-    const code = generateOTP();
-
-    // إنشاء OTP جديد
-    const otp = await OtpCode.create({
-      phone,
-      code,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
-    });
-
-    // إرسال الكود
-    await sendWhatsAppOTP(phone, code);
-
-    res.status(200).json({
-      success: true,
-      message: 'تم إعادة إرسال الرمز',
-      expiresIn: otp.remainingSeconds,
-    });
-
-  } catch (error) {
-    console.error('❌ Resend OTP Error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'فشل إعادة إرسال الرمز' 
-    });
-  }
-});
-
-// ============================================================================
-// Export Router
-// ============================================================================
 module.exports = router;
