@@ -1,390 +1,208 @@
 // controllers/whatsappController.js
-const OtpCode = require('../models/OtpCode');
-const Customer = require('../models/Customer');
-const Provider = require('../models/Provider');
-const { sendWhatsappBackground } = require('../utils/sendWhatsapp'); // 👈 استخدم Background
+const OtpCode = require("../models/OtpCode");
+const { sendWhatsapp } = require("../utils/sendWhatsapp");
+const Customer = require("../models/Customer");
+const Provider = require("../models/Provider");
 
-// ============================================================================
-// توحيد وتحقق من صحة الرقم
-// ============================================================================
+// توحيد الرقم
 function normalizePhone(raw) {
   if (!raw) return null;
-  const p = raw.trim().replace(/\s+/g, '');
+  const p = raw.trim().replace(/\s+/g, "");
 
-  // الأرقام العراقية التي تبدأ بـ 07
-  if (p.startsWith('07')) {
+  // 07 عراقي
+  if (p.startsWith("07")) {
     return `+964${p.slice(1)}`;
   }
 
-  // الأرقام الدولية اللي تبدأ بـ +
-  if (p.startsWith('+')) {
+  // دولي +
+  if (p.startsWith("+")) {
     if (!/^\+[0-9]+$/.test(p)) return null;
     return p;
   }
 
-  // أي رقم ثاني: لازم يكون كله أرقام
+  // أرقام بس
   if (!/^[0-9]+$/.test(p)) return null;
   return p;
 }
 
-// ============================================================================
-// POST /api/whatsapp/send-code - إرسال رمز التحقق
-// ============================================================================
+// يساعدنا نجيب الشخص حسب الدور
+async function findUserByRole(role, phone) {
+  if (role === "customer") {
+    return Customer.findOne({ phone });
+  }
+  if (role === "provider") {
+    return Provider.findOne({ phone });
+  }
+  return null;
+}
+
+// POST /api/whatsapp/send-code
+// body: { phone, role: 'customer' | 'provider' }
 exports.sendLoginCode = async (req, res) => {
   try {
-    const { phone, role, purpose, name, serviceType, city, carPlate } = req.body;
+    const { phone, role } = req.body;
 
-    // التحقق من الرقم
     if (!phone) {
-      return res.status(400).json({ 
-        ok: false, 
-        error: 'phone is required' 
-      });
+      return res.status(400).json({ ok: false, error: "phone is required" });
+    }
+    if (!role || !["customer", "provider"].includes(role)) {
+      return res.status(400).json({ ok: false, error: "valid role is required" });
     }
 
     const normalized = normalizePhone(phone);
     if (!normalized) {
-      return res.status(400).json({
+      return res
+        .status(400)
+        .json({ ok: false, error: "invalid phone number format" });
+    }
+
+    // 1) نتأكد مسجل أصلًا حسب الدور
+    const existingUser = await findUserByRole(role, normalized);
+    if (!existingUser) {
+      return res.status(404).json({
         ok: false,
-        error: 'invalid phone number format. Please enter a valid phone number',
+        error:
+          role === "customer"
+            ? "customer not found, please register first"
+            : "provider not found, please register first",
       });
     }
 
-    // ============================================================================
-    // التحقق من وجود المستخدم (للـ Login فقط)
-    // ============================================================================
-    if (purpose === 'login') {
-      let exists;
-      
-      if (role === 'provider') {
-        exists = await Provider.findOne({ phone: normalized });
-        if (!exists) {
-          return res.status(404).json({
-            ok: false,
-            error: 'provider not found, please register first',
-          });
-        }
-      } else {
-        exists = await Customer.findOne({ phone: normalized });
-        if (!exists) {
-          return res.status(404).json({
-            ok: false,
-            error: 'customer not found, please register first',
-          });
-        }
-      }
-    }
-
-    // ============================================================================
-    // التحقق من وجود مستخدم مسجل (للـ Register فقط)
-    // ============================================================================
-    if (purpose === 'register' || name) {
-      let exists;
-      
-      if (role === 'provider') {
-        exists = await Provider.findOne({ phone: normalized });
-        if (exists) {
-          return res.status(409).json({
-            ok: false,
-            error: 'this phone is already registered as provider',
-          });
-        }
-      } else {
-        exists = await Customer.findOne({ phone: normalized });
-        if (exists) {
-          return res.status(409).json({
-            ok: false,
-            error: 'this phone is already registered as customer',
-          });
-        }
-      }
-    }
-
-    // ============================================================================
-    // Rate Limiting
-    // ============================================================================
-    const existingRecord = await OtpCode.findOne({ phone: normalized });
-    if (existingRecord) {
-      const diff = Date.now() - existingRecord.updatedAt;
+    // 2) rate limit على نفس الرقم
+    const existingOtp = await OtpCode.findOne({ phone: normalized });
+    if (existingOtp) {
+      const diff = Date.now() - existingOtp.updatedAt.getTime();
       if (diff < 60_000) {
+        // أقل من دقيقة
         return res.status(429).json({
           ok: false,
-          error: 'please wait before requesting new code',
+          error: "please wait before requesting new code",
           waitTime: Math.ceil((60_000 - diff) / 1000),
         });
       }
     }
 
-    // ============================================================================
-    // توليد الكود
-    // ============================================================================
+    // 3) نولد كود
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 دقائق
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 دقايق
 
-    // تجهيز البيانات المؤقتة
-    const pendingData = {};
-    
-    if (name) {
-      pendingData.name = name;
-    }
-    
-    if (role === 'provider') {
-      pendingData.serviceType = serviceType;
-      pendingData.city = city;
-      pendingData.carPlate = carPlate;
-    }
-
-    // ============================================================================
-    // حفظ OTP في قاعدة البيانات
-    // ============================================================================
+    // 4) نخزنه
     await OtpCode.findOneAndUpdate(
       { phone: normalized },
       {
         phone: normalized,
         code,
         expiresAt,
-        role: role || 'customer',
-        purpose: purpose || (name ? 'register' : 'login'),
+        role, // مهم
         attempts: 0,
-        pendingData,
       },
       { upsert: true, new: true }
     );
 
-    // طباعة معلومات OTP
-    console.log(`💾 [${new Date().toISOString()}] OTP saved for ${normalized}:`, {
-      code: process.env.NODE_ENV === 'development' ? code : '******',
-      purpose: purpose || (name ? 'register' : 'login'),
-      role: role || 'customer',
-      hasPendingData: Object.keys(pendingData).length > 0,
-      expiresAt: expiresAt.toISOString(),
-    });
+    // 5) نرسل واتساب
+    await sendWhatsapp({ to: normalized, code });
 
-    // ============================================================================
-    // 🚀 إرسال WhatsApp في Background (الحل!)
-    // ============================================================================
-    sendWhatsappBackground({ to: normalized, code });
+    console.log(
+      `OTP sent to ${normalized} for role=${role}`
+    );
 
-    console.log(`✅ [${new Date().toISOString()}] Response sent immediately to client for ${normalized}`);
-
-    // ============================================================================
-    // ✅ إرجاع استجابة فورية (بدون انتظار Twilio)
-    // ============================================================================
-    return res.status(200).json({ 
-      ok: true, 
-      message: 'code sent via whatsapp',
-      // 👇 للتطوير فقط - شوف الكود في Console
-      ...(process.env.NODE_ENV === 'development' && {
-        debug: {
-          code,
-          phone: normalized,
-          expiresIn: '5 minutes',
-        },
-      }),
-    });
-
+    return res.json({ ok: true, message: "code sent via whatsapp" });
   } catch (err) {
-    console.error('❌ [${new Date().toISOString()}] sendLoginCode error:', err);
-    return res.status(500).json({ 
-      ok: false, 
-      error: 'internal error' 
-    });
+    console.error("sendLoginCode error:", err);
+    return res.status(500).json({ ok: false, error: "internal error" });
   }
 };
 
-// ============================================================================
-// POST /api/whatsapp/verify-code - التحقق من الرمز
-// ============================================================================
+// POST /api/whatsapp/verify-code
+// body: { phone, code }
 exports.verifyCode = async (req, res) => {
   try {
-    const { phone } = req.body;
-    const code = req.body.code != null ? String(req.body.code).trim() : null;
+    const { phone, code } = req.body;
 
-    // التحقق من المدخلات
     if (!phone || !code) {
-      return res.status(400).json({ 
-        ok: false, 
-        error: 'phone and code are required' 
-      });
+      return res
+        .status(400)
+        .json({ ok: false, error: "phone and code are required" });
     }
 
     const normalized = normalizePhone(phone);
     if (!normalized) {
-      return res.status(400).json({ 
-        ok: false, 
-        error: 'invalid phone number format' 
-      });
+      return res
+        .status(400)
+        .json({ ok: false, error: "invalid phone number format" });
     }
 
-    console.log(`🔍 [${new Date().toISOString()}] Verifying code for ${normalized}`);
-
-    // ============================================================================
-    // البحث عن OTP
-    // ============================================================================
     const record = await OtpCode.findOne({ phone: normalized });
     if (!record) {
-      return res.status(400).json({ 
-        ok: false, 
-        error: 'code not found, request new one' 
-      });
+      return res
+        .status(400)
+        .json({ ok: false, error: "code not found, request new one" });
     }
 
-    // التحقق من انتهاء الصلاحية
+    // منخلي التطبيق يبعث role لأنّا حافظينه هنانا
+    const role = record.role || "customer";
+
+    // انتهى؟
     if (record.expiresAt < new Date()) {
       await OtpCode.deleteOne({ phone: normalized });
-      return res.status(400).json({ 
-        ok: false, 
-        error: 'code expired, request new one' 
-      });
+      return res
+        .status(400)
+        .json({ ok: false, error: "code expired, request new one" });
     }
 
-    // التحقق من المحاولات
+    // محاولات
     if (record.attempts >= 3) {
       await OtpCode.deleteOne({ phone: normalized });
-      return res.status(429).json({ 
-        ok: false, 
-        error: 'too many attempts, request new code' 
-      });
+      return res
+        .status(429)
+        .json({ ok: false, error: "too many attempts, request new code" });
     }
 
-    // التحقق من الكود
-    if (record.code !== code) {
+    // الكود غلط؟
+    if (record.code !== code.trim()) {
       await OtpCode.findOneAndUpdate(
         { phone: normalized },
         { $inc: { attempts: 1 } }
       );
-      const remaining = 3 - (record.attempts + 1);
-      return res.status(400).json({
-        ok: false,
-        error: 'invalid code',
-        remainingAttempts: remaining > 0 ? remaining : 0,
-      });
+      return res
+        .status(400)
+        .json({ ok: false, error: "invalid code" });
     }
 
-    // ============================================================================
-    // الكود صحيح ✅
-    // ============================================================================
-    const purpose = record.purpose || 'login';
-    const role = record.role || 'customer';
-    const pendingData = record.pendingData || {};
-
-    let user;
-
-    // ============================================================================
-    // معالجة حسب النوع (Customer أو Provider)
-    // ============================================================================
-    if (role === 'provider') {
-      // ========== Provider ==========
-      user = await Provider.findOne({ phone: normalized });
-
-      if (purpose === 'register' || (purpose === 'login' && !user)) {
-        // إنشاء Provider جديد
-        if (!pendingData.name || !pendingData.serviceType || !pendingData.city) {
-          await OtpCode.deleteOne({ phone: normalized });
-          return res.status(400).json({
-            ok: false,
-            error: 'missing provider data (name, serviceType, city)',
-          });
-        }
-
-        user = await Provider.create({
-          phone: normalized,
-          name: pendingData.name,
-          serviceType: pendingData.serviceType,
-          city: pendingData.city,
-          carPlate: pendingData.carPlate,
-          isVerified: true,
-        });
-
-        console.log(`✅ [${new Date().toISOString()}] New Provider registered: ${normalized}`, {
-          name: user.name,
-          serviceType: user.serviceType,
-          city: user.city,
-        });
-      } else if (user) {
-        // تسجيل دخول Provider موجود
-        user.isVerified = true;
-        await user.save();
-        console.log(`✅ [${new Date().toISOString()}] Provider logged in: ${normalized}`);
-      }
-
-    } else {
-      // ========== Customer ==========
-      user = await Customer.findOne({ phone: normalized });
-
-      if (purpose === 'register' || (purpose === 'login' && !user)) {
-        // إنشاء Customer جديد
-        if (!pendingData.name) {
-          await OtpCode.deleteOne({ phone: normalized });
-          return res.status(400).json({
-            ok: false,
-            error: 'missing customer name',
-          });
-        }
-
-        user = await Customer.create({
-          phone: normalized,
-          name: pendingData.name,
-          isVerified: true,
-        });
-
-        console.log(`✅ [${new Date().toISOString()}] New Customer registered: ${normalized}`, {
-          name: user.name,
-        });
-      } else if (user) {
-        // تسجيل دخول Customer موجود
-        user.isVerified = true;
-        await user.save();
-        console.log(`✅ [${new Date().toISOString()}] Customer logged in: ${normalized}`);
-      }
-    }
-
-    // ============================================================================
-    // التحقق النهائي
-    // ============================================================================
+    // الكود صح ✅
+    // نتأكد بعده موجود بهذا الدور
+    const user = await findUserByRole(role, normalized);
     if (!user) {
+      // حالة نادرة: انحذف بين الإرسال والتحقق
       await OtpCode.deleteOne({ phone: normalized });
       return res.status(404).json({
         ok: false,
-        error: 'user not found, please register first',
+        error:
+          role === "customer"
+            ? "customer not found, please register first"
+            : "provider not found, please register first",
       });
     }
 
-    // حذف OTP بعد النجاح
+    // نحذف الكود
     await OtpCode.deleteOne({ phone: normalized });
 
-    // ============================================================================
-    // الاستجابة النهائية
-    // ============================================================================
-    const response = {
+    console.log(
+      `OTP verified for ${normalized} as ${role}`
+    );
+
+    return res.json({
       ok: true,
-      message: 'verified',
+      message: "verified",
       user: {
         id: user._id,
         phone: user.phone,
-        name: user.name,
-        role: role,
+        role,
+        name: user.name || null,
       },
-    };
-
-    // إضافة بيانات Provider
-    if (role === 'provider') {
-      response.user.serviceType = user.serviceType;
-      response.user.city = user.city;
-      response.user.rating = user.rating;
-      response.user.isAvailable = user.isAvailable;
-      response.user.completedJobs = user.completedJobs;
-    }
-
-    console.log(`✅ [${new Date().toISOString()}] Verification successful for ${normalized}`);
-
-    return res.json(response);
-
-  } catch (err) {
-    console.error(`❌ [${new Date().toISOString()}] verifyCode error:`, err);
-    return res.status(500).json({ 
-      ok: false, 
-      error: 'internal error' 
     });
+  } catch (err) {
+    console.error("verifyCode error:", err);
+    return res.status(500).json({ ok: false, error: "internal error" });
   }
 };
