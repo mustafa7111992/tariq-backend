@@ -1,6 +1,15 @@
 // models/Provider.js
 const mongoose = require('mongoose');
 
+// نوحّد الرقم مثل باقي السيستم
+function normalizePhone(raw) {
+  if (!raw) return null;
+  const p = raw.trim().replace(/\s+/g, '');
+  if (p.startsWith('07')) return `+964${p.slice(1)}`;
+  if (p.startsWith('+')) return /^\+[0-9]+$/.test(p) ? p : null;
+  return /^[0-9]+$/.test(p) ? p : null;
+}
+
 const providerSchema = new mongoose.Schema(
   {
     phone: {
@@ -9,13 +18,14 @@ const providerSchema = new mongoose.Schema(
       unique: true,
       trim: true,
       index: true,
+      set: normalizePhone, // يخزن الرقم موحد
     },
     name: {
       type: String,
       required: true,
       trim: true,
     },
-    // مثل serviceType اللي تستعمله بتطبيقك (كهربائي, نجّار, سحب, ...الخ)
+    // نوع الخدمة اللي يقدمها (نجار، كهربائي، سطحة...)
     serviceType: {
       type: String,
       trim: true,
@@ -24,42 +34,29 @@ const providerSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
-    avatar: {
-      type: String,
-    },
-    isVerified: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
+    // هل هو مفعل
     isActive: {
       type: Boolean,
       default: true,
       index: true,
     },
-
+    // توثيق/تحقق المزود (تريد تربطه بأدمن بعدين)
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    // للتنبيهات
+    fcmToken: {
+      type: String,
+      default: null,
+    },
     // إحصائيات بسيطة
-    totalCompleted: {
+    totalRequests: {
       type: Number,
       default: 0,
     },
-    lastJobAt: {
+    lastRequestAt: {
       type: Date,
-    },
-
-    // لو تريد تحتفظ بآخر لوكيشن بسيط (غير إللي ب ProviderSettings)
-    lastLocation: {
-      type: {
-        type: String,
-        enum: ['Point'],
-        default: 'Point',
-      },
-      coordinates: {
-        type: [Number], // [lng, lat]
-      },
-      updatedAt: {
-        type: Date,
-      },
     },
   },
   {
@@ -67,15 +64,15 @@ const providerSchema = new mongoose.Schema(
   }
 );
 
-// indexes
+// Indexes
 providerSchema.index({ phone: 1 });
 providerSchema.index({ serviceType: 1, city: 1 });
 providerSchema.index({ createdAt: -1 });
 
-// methods
-providerSchema.methods.markJobDone = function () {
-  this.totalCompleted += 1;
-  this.lastJobAt = new Date();
+// method مثل الكستمر
+providerSchema.methods.incrementRequests = function () {
+  this.totalRequests += 1;
+  this.lastRequestAt = new Date();
   return this.save();
 };
 
