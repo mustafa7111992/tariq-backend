@@ -97,6 +97,7 @@ router.post('/send-code', async (req, res) => {
       code: otp.code,
       role: otp.role,
       purpose: otp.purpose,
+      pendingData: otp.pendingData, // 👈 جديد
     });
 
     // إرسال الكود عبر واتساب
@@ -109,6 +110,7 @@ router.post('/send-code', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Send OTP Error:', error);
+    console.error('❌ Error Stack:', error.stack); // 👈 جديد
     res.status(500).json({
       success: false,
       message: 'خطأ في إرسال الرمز',
@@ -123,6 +125,8 @@ router.post('/verify-code', async (req, res) => {
   try {
     const { phone, code } = req.body;
 
+    console.log('🔍 Verify Request:', { phone, code, body: req.body }); // 👈 جديد
+
     if (!phone || !code) {
       return res.status(400).json({
         success: false,
@@ -132,6 +136,16 @@ router.post('/verify-code', async (req, res) => {
 
     // البحث عن OTP صالح
     const otp = await OtpCode.findValidOTP(phone);
+
+    console.log('🔍 Found OTP:', otp ? { // 👈 جديد
+      phone: otp.phone,
+      code: otp.code,
+      role: otp.role,
+      purpose: otp.purpose,
+      pendingData: otp.pendingData,
+      expiresAt: otp.expiresAt,
+      status: otp.status,
+    } : 'null');
 
     if (!otp) {
       return res.status(404).json({
@@ -143,7 +157,9 @@ router.post('/verify-code', async (req, res) => {
     // التحقق من الكود
     try {
       await otp.verify(code);
+      console.log('✅ Code verified successfully'); // 👈 جديد
     } catch (verifyError) {
+      console.error('❌ Code verification failed:', verifyError.message); // 👈 جديد
       return res.status(400).json({
         success: false,
         message: verifyError.message,
@@ -152,12 +168,27 @@ router.post('/verify-code', async (req, res) => {
 
     let user;
 
+    console.log('🔍 Processing user creation/login...', { // 👈 جديد
+      purpose: otp.purpose,
+      role: otp.role,
+      hasPendingData: !!otp.pendingData,
+      pendingDataKeys: otp.pendingData ? Object.keys(otp.pendingData) : [],
+    });
+
     // إذا كان تسجيل جديد وفيه بيانات
     if (otp.purpose === 'register' && otp.pendingData?.name) {
       if (otp.role === 'provider') {
         // ============================================================================
         // إنشاء Provider
         // ============================================================================
+        console.log('🔨 Creating new Provider with data:', { // 👈 جديد
+          phone: phone,
+          name: otp.pendingData.name,
+          serviceType: otp.pendingData.serviceType,
+          city: otp.pendingData.city,
+          carPlate: otp.pendingData.carPlate,
+        });
+
         user = await Provider.create({
           phone: phone,
           name: otp.pendingData.name,
@@ -171,6 +202,11 @@ router.post('/verify-code', async (req, res) => {
         // ============================================================================
         // إنشاء Customer
         // ============================================================================
+        console.log('🔨 Creating new Customer with data:', { // 👈 جديد
+          phone: phone,
+          name: otp.pendingData.name,
+        });
+
         user = await Customer.create({
           phone: phone,
           name: otp.pendingData.name,
@@ -180,6 +216,8 @@ router.post('/verify-code', async (req, res) => {
       }
     } else {
       // تسجيل دخول لمستخدم موجود
+      console.log('🔍 Looking for existing user...'); // 👈 جديد
+
       if (otp.role === 'provider') {
         user = await Provider.findOne({ phone });
       } else {
@@ -187,6 +225,7 @@ router.post('/verify-code', async (req, res) => {
       }
 
       if (!user) {
+        console.error('❌ User not found for login'); // 👈 جديد
         return res.status(404).json({
           success: false,
           message: 'المستخدم غير موجود. الرجاء التسجيل أولاً.',
@@ -200,6 +239,8 @@ router.post('/verify-code', async (req, res) => {
 
     // حذف OTP بعد النجاح
     await OtpCode.deleteOne({ _id: otp._id });
+
+    console.log('✅ Verification complete, sending response'); // 👈 جديد
 
     res.status(200).json({
       success: true,
@@ -220,6 +261,11 @@ router.post('/verify-code', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Verify OTP Error:', error);
+    console.error('❌ Error Name:', error.name); // 👈 جديد
+    console.error('❌ Error Message:', error.message); // 👈 جديد
+    console.error('❌ Error Stack:', error.stack); // 👈 جديد
+    console.error('❌ Request Body:', req.body); // 👈 جديد
+    
     res.status(500).json({
       success: false,
       message: 'خطأ في التحقق من الرمز',
